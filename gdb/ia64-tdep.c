@@ -1,6 +1,6 @@
 /* Target-dependent code for the IA-64 for GDB, the GNU debugger.
 
-   Copyright (C) 1999-2015 Free Software Foundation, Inc.
+   Copyright (C) 1999-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -512,7 +512,7 @@ fetch_instruction (CORE_ADDR addr, instruction_type *it, long long *instr)
 {
   gdb_byte bundle[BUNDLE_LEN];
   int slotnum = (int) (addr & 0x0f) / SLOT_MULTIPLIER;
-  long long template;
+  long long templ;
   int val;
 
   /* Warn about slot numbers greater than 2.  We used to generate
@@ -543,8 +543,8 @@ fetch_instruction (CORE_ADDR addr, instruction_type *it, long long *instr)
     return 0;
 
   *instr = slotN_contents (bundle, slotnum);
-  template = extract_bit_field (bundle, 0, 5);
-  *it = template_encoding_table[(int)template][slotnum];
+  templ = extract_bit_field (bundle, 0, 5);
+  *it = template_encoding_table[(int)templ][slotnum];
 
   if (slotnum == 2 || (slotnum == 1 && *it == L))
     addr += 16;
@@ -642,7 +642,7 @@ ia64_memory_insert_breakpoint (struct gdbarch *gdbarch,
   int slotnum = (int) (addr & 0x0f) / SLOT_MULTIPLIER, shadow_slotnum;
   long long instr_breakpoint;
   int val;
-  int template;
+  int templ;
   struct cleanup *cleanup;
 
   if (slotnum > 2)
@@ -671,8 +671,8 @@ ia64_memory_insert_breakpoint (struct gdbarch *gdbarch,
      a breakpoint on an L-X instruction.  */
   bp_tgt->shadow_len = BUNDLE_LEN - shadow_slotnum;
 
-  template = extract_bit_field (bundle, 0, 5);
-  if (template_encoding_table[template][slotnum] == X)
+  templ = extract_bit_field (bundle, 0, 5);
+  if (template_encoding_table[templ][slotnum] == X)
     {
       /* X unit types can only be used in slot 2, and are actually
 	 part of a 2-slot L-X instruction.  We cannot break at this
@@ -681,7 +681,7 @@ ia64_memory_insert_breakpoint (struct gdbarch *gdbarch,
       gdb_assert (slotnum == 2);
       error (_("Can't insert breakpoint for non-existing slot X"));
     }
-  if (template_encoding_table[template][slotnum] == L)
+  if (template_encoding_table[templ][slotnum] == L)
     {
       /* L unit types can only be used in slot 1.  But the associated
 	 opcode for that instruction is in slot 2, so bump the slot number
@@ -739,7 +739,7 @@ ia64_memory_remove_breakpoint (struct gdbarch *gdbarch,
   int slotnum = (addr & 0x0f) / SLOT_MULTIPLIER, shadow_slotnum;
   long long instr_breakpoint, instr_saved;
   int val;
-  int template;
+  int templ;
   struct cleanup *cleanup;
 
   addr &= ~0x0f;
@@ -761,8 +761,8 @@ ia64_memory_remove_breakpoint (struct gdbarch *gdbarch,
      for addressing the SHADOW_CONTENTS placement.  */
   shadow_slotnum = slotnum;
 
-  template = extract_bit_field (bundle_mem, 0, 5);
-  if (template_encoding_table[template][slotnum] == X)
+  templ = extract_bit_field (bundle_mem, 0, 5);
+  if (template_encoding_table[templ][slotnum] == X)
     {
       /* X unit types can only be used in slot 2, and are actually
 	 part of a 2-slot L-X instruction.  We refuse to insert
@@ -776,7 +776,7 @@ ia64_memory_remove_breakpoint (struct gdbarch *gdbarch,
       do_cleanups (cleanup);
       return -1;
     }
-  if (template_encoding_table[template][slotnum] == L)
+  if (template_encoding_table[templ][slotnum] == L)
     {
       /* L unit types can only be used in slot 1.  But the breakpoint
 	 was actually saved using slot 2, so update the slot number
@@ -829,7 +829,7 @@ ia64_breakpoint_from_pc (struct gdbarch *gdbarch,
   int slotnum = (int) (*pcptr & 0x0f) / SLOT_MULTIPLIER, shadow_slotnum;
   long long instr_fetched;
   int val;
-  int template;
+  int templ;
   struct cleanup *cleanup;
 
   if (slotnum > 2)
@@ -857,13 +857,13 @@ ia64_breakpoint_from_pc (struct gdbarch *gdbarch,
 
   /* Check for L type instruction in slot 1, if present then bump up the slot
      number to the slot 2.  */
-  template = extract_bit_field (bundle, 0, 5);
-  if (template_encoding_table[template][slotnum] == X)
+  templ = extract_bit_field (bundle, 0, 5);
+  if (template_encoding_table[templ][slotnum] == X)
     {
       gdb_assert (slotnum == 2);
       error (_("Can't insert breakpoint for non-existing slot X"));
     }
-  if (template_encoding_table[template][slotnum] == L)
+  if (template_encoding_table[templ][slotnum] == L)
     {
       gdb_assert (slotnum == 1);
       slotnum = 2;
@@ -1103,7 +1103,7 @@ ia64_pseudo_register_write (struct gdbarch *gdbarch, struct regcache *regcache,
       if ((cfm & 0x7f) > regnum - V32_REGNUM) 
 	{
 	  ULONGEST reg_addr = rse_address_add (bsp, (regnum - V32_REGNUM));
-	  write_memory (reg_addr, (void *) buf, 8);
+	  write_memory (reg_addr, buf, 8);
 	}
     }
   else if (IA64_NAT0_REGNUM <= regnum && regnum <= IA64_NAT31_REGNUM)
@@ -1853,7 +1853,7 @@ ia64_frame_cache (struct frame_info *this_frame, void **this_cache)
   CORE_ADDR cfm, psr;
 
   if (*this_cache)
-    return *this_cache;
+    return (struct ia64_frame_cache *) *this_cache;
 
   cache = ia64_alloc_frame_cache ();
   *this_cache = cache;
@@ -2240,7 +2240,7 @@ ia64_sigtramp_frame_cache (struct frame_info *this_frame, void **this_cache)
   gdb_byte buf[8];
 
   if (*this_cache)
-    return *this_cache;
+    return (struct ia64_frame_cache *) *this_cache;
 
   cache = ia64_alloc_frame_cache ();
 
@@ -3854,11 +3854,11 @@ ia64_push_dummy_call (struct gdbarch *gdbarch, struct value *function,
 	  len = TYPE_LENGTH (type);
 	  while (len > 0 && floatreg < IA64_FR16_REGNUM)
 	    {
-	      char to[MAX_REGISTER_SIZE];
+	      gdb_byte to[MAX_REGISTER_SIZE];
 	      convert_typed_floating (value_contents (arg) + argoffset,
 				      float_elt_type, to,
 				      ia64_ext_type (gdbarch));
-	      regcache_cooked_write (regcache, floatreg, (void *)to);
+	      regcache_cooked_write (regcache, floatreg, to);
 	      floatreg++;
 	      argoffset += TYPE_LENGTH (float_elt_type);
 	      len -= TYPE_LENGTH (float_elt_type);
@@ -3963,7 +3963,7 @@ ia64_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
   if (arches != NULL)
     return arches->gdbarch;
 
-  tdep = xzalloc (sizeof (struct gdbarch_tdep));
+  tdep = XCNEW (struct gdbarch_tdep);
   gdbarch = gdbarch_alloc (&info, tdep);
 
   tdep->size_of_register_frame = ia64_size_of_register_frame;

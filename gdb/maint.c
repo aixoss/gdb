@@ -1,6 +1,6 @@
 /* Support for GDB maintenance commands.
 
-   Copyright (C) 1992-2015 Free Software Foundation, Inc.
+   Copyright (C) 1992-2016 Free Software Foundation, Inc.
 
    Written by Fred Fish at Cygnus Support.
 
@@ -24,7 +24,7 @@
 #include "arch-utils.h"
 #include <ctype.h>
 #include <signal.h>
-#include <sys/time.h>
+#include "gdb_sys_time.h"
 #include <time.h>
 #include "command.h"
 #include "gdbcmd.h"
@@ -303,7 +303,7 @@ print_bfd_section_info (bfd *abfd,
 {
   flagword flags = bfd_get_section_flags (abfd, asect);
   const char *name = bfd_section_name (abfd, asect);
-  const char *arg = datum;
+  const char *arg = (const char *) datum;
 
   if (arg == NULL || *arg == '\0'
       || match_substring (arg, name)
@@ -683,14 +683,17 @@ extern char etext;
 
 static int profiling_state;
 
+EXTERN_C void _mcleanup (void);
+
 static void
 mcleanup_wrapper (void)
 {
-  extern void _mcleanup (void);
-
   if (profiling_state)
     _mcleanup ();
 }
+
+EXTERN_C void monstartup (unsigned long, unsigned long);
+extern int main ();
 
 static void
 maintenance_set_profile_cmd (char *args, int from_tty,
@@ -704,9 +707,6 @@ maintenance_set_profile_cmd (char *args, int from_tty,
   if (maintenance_profile_p)
     {
       static int profiling_initialized;
-
-      extern void monstartup (unsigned long, unsigned long);
-      extern int main();
 
       if (!profiling_initialized)
 	{

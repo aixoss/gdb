@@ -1,5 +1,5 @@
 /* Renesas RX specific support for 32-bit ELF.
-   Copyright (C) 2008-2015 Free Software Foundation, Inc.
+   Copyright (C) 2008-2016 Free Software Foundation, Inc.
 
    This file is part of BFD, the Binary File Descriptor library.
 
@@ -49,7 +49,7 @@ void rx_dump_symtab (bfd *, void *, void *);
 
 static reloc_howto_type rx_elf_howto_table [] =
 {
-  RXREL (NONE,         0,  0, 0, dont,     FALSE),
+  RXREL (NONE,         3,  0, 0, dont,     FALSE),
   RXREL (DIR32,        2, 32, 0, signed,   FALSE),
   RXREL (DIR24S,       2, 24, 0, signed,   FALSE),
   RXREL (DIR16,        1, 16, 0, dont,     FALSE),
@@ -277,7 +277,7 @@ rx_reloc_type_lookup (bfd *                    abfd ATTRIBUTE_UNUSED,
   if (code == BFD_RELOC_RX_32_OP)
     return rx_elf_howto_table + R_RX_DIR32;
 
-  for (i = ARRAY_SIZE (rx_reloc_map); --i;)
+  for (i = ARRAY_SIZE (rx_reloc_map); i--;)
     if (rx_reloc_map [i].bfd_reloc_val == code)
       return rx_elf_howto_table + rx_reloc_map[i].rx_reloc_val;
 
@@ -309,7 +309,7 @@ rx_info_to_howto_rela (bfd *               abfd ATTRIBUTE_UNUSED,
   r_type = ELF32_R_TYPE (dst->r_info);
   if (r_type >= (unsigned int) R_RX_max)
     {
-      _bfd_error_handler (_("%A: invalid RX reloc number: %d"), abfd, r_type);
+      _bfd_error_handler (_("%B: invalid RX reloc number: %d"), abfd, r_type);
       r_type = 0;
     }
   cache_ptr->howto = rx_elf_howto_table + r_type;
@@ -632,7 +632,7 @@ rx_elf_relocate_section
 	RELOC_AGAINST_DISCARDED_SECTION (info, input_bfd, input_section,
 					 rel, 1, relend, howto, 0, contents);
 
-      if (info->relocatable)
+      if (bfd_link_relocatable (info))
 	{
 	  /* This is a relocatable link.  We don't have to change
              anything, unless the reloc is against a section symbol,
@@ -1531,7 +1531,8 @@ next_smaller_reloc (int r)
 
 static bfd_boolean
 elf32_rx_relax_delete_bytes (bfd *abfd, asection *sec, bfd_vma addr, int count,
-			     Elf_Internal_Rela *alignment_rel, int force_snip)
+			     Elf_Internal_Rela *alignment_rel, int force_snip,
+			     Elf_Internal_Rela *irelstart)
 {
   Elf_Internal_Shdr * symtab_hdr;
   unsigned int        sec_shndx;
@@ -1558,8 +1559,7 @@ elf32_rx_relax_delete_bytes (bfd *abfd, asection *sec, bfd_vma addr, int count,
   if (alignment_rel)
     toaddr = alignment_rel->r_offset;
 
-  irel = elf_section_data (sec)->relocs;
-  irelend = irel + sec->reloc_count;
+  BFD_ASSERT (toaddr > addr);  
 
   /* Actually delete the bytes.  */
   memmove (contents + addr, contents + addr + count,
@@ -1573,8 +1573,12 @@ elf32_rx_relax_delete_bytes (bfd *abfd, asection *sec, bfd_vma addr, int count,
   else
     memset (contents + toaddr - count, 0x03, count);
 
+  irel = irelstart;
+  BFD_ASSERT (irel != NULL || sec->reloc_count == 0);
+  irelend = irel + sec->reloc_count;
+
   /* Adjust all the relocs.  */
-  for (irel = elf_section_data (sec)->relocs; irel < irelend; irel++)
+  for (; irel < irelend; irel++)
     {
       /* Get the new reloc address.  */
       if (irel->r_offset > addr
@@ -1965,7 +1969,6 @@ elf32_rx_relax_section (bfd *                  abfd,
   Elf_Internal_Shdr * symtab_hdr;
   Elf_Internal_Shdr * shndx_hdr;
   Elf_Internal_Rela * internal_relocs;
-  Elf_Internal_Rela * free_relocs = NULL;
   Elf_Internal_Rela * irel;
   Elf_Internal_Rela * srel;
   Elf_Internal_Rela * irelend;
@@ -1991,14 +1994,17 @@ elf32_rx_relax_section (bfd *                  abfd,
   /* We don't have to do anything for a relocatable link, if
      this section does not have relocs, or if this is not a
      code section.  */
-  if (link_info->relocatable
+  if (bfd_link_relocatable (link_info)
       || (sec->flags & SEC_RELOC) == 0
       || sec->reloc_count == 0
       || (sec->flags & SEC_CODE) == 0)
     return TRUE;
 
-  symtab_hdr = &elf_tdata (abfd)->symtab_hdr;
-  shndx_hdr = &elf_tdata (abfd)->symtab_shndx_hdr;
+  symtab_hdr = & elf_symtab_hdr (abfd);
+  if (elf_symtab_shndx_list (abfd))
+    shndx_hdr = & elf_symtab_shndx_list (abfd)->hdr;
+  else
+    shndx_hdr = NULL;
 
   sec_start = sec->output_section->vma + sec->output_offset;
 
@@ -2023,7 +2029,7 @@ elf32_rx_relax_section (bfd *                  abfd,
       symtab_hdr->contents = (bfd_byte *) intsyms;
     }
 
-  if (shndx_hdr->sh_size != 0)
+  if (shndx_hdr && shndx_hdr->sh_size != 0)
     {
       bfd_size_type amt;
 
@@ -2039,13 +2045,15 @@ elf32_rx_relax_section (bfd *                  abfd,
     }
 
   /* Get a copy of the native relocations.  */
-  internal_relocs = (_bfd_elf_link_read_relocs
-		     (abfd, sec, NULL, (Elf_Internal_Rela *) NULL,
-		      link_info->keep_memory));
+  /* Note - we ignore the setting of link_info->keep_memory when reading
+     in these relocs.  We have to maintain a permanent copy of the relocs
+     because we are going to walk over them multiple times, adjusting them
+     as bytes are deleted from the section, and with this relaxation
+     function itself being called multiple times on the same section...  */
+  internal_relocs = _bfd_elf_link_read_relocs
+    (abfd, sec, NULL, (Elf_Internal_Rela *) NULL, TRUE);
   if (internal_relocs == NULL)
     goto error_return;
-  if (! link_info->keep_memory)
-    free_relocs = internal_relocs;
 
   /* The RL_ relocs must be just before the operand relocs they go
      with, so we must sort them to guarantee this.  We use bubblesort
@@ -2135,7 +2143,7 @@ elf32_rx_relax_section (bfd *                  abfd,
 	  nbytes *= alignment;
 
 	  elf32_rx_relax_delete_bytes (abfd, sec, erel->r_offset-nbytes, nbytes, next_alignment,
-				       erel->r_offset == sec->size);
+				       erel->r_offset == sec->size, internal_relocs);
 	  *again = TRUE;
 
 	  continue;
@@ -2174,7 +2182,7 @@ elf32_rx_relax_section (bfd *                  abfd,
       nrelocs --;
 
 #define SNIPNR(offset, nbytes) \
-	elf32_rx_relax_delete_bytes (abfd, sec, (insn - contents) + offset, nbytes, next_alignment, 0);
+      elf32_rx_relax_delete_bytes (abfd, sec, (insn - contents) + offset, nbytes, next_alignment, 0, internal_relocs);
 #define SNIP(offset, nbytes, newtype) \
         SNIPNR (offset, nbytes);						\
 	srel->r_info = ELF32_R_INFO (ELF32_R_SYM (srel->r_info), newtype)
@@ -2994,9 +3002,6 @@ elf32_rx_relax_section (bfd *                  abfd,
   return TRUE;
 
  error_return:
-  if (free_relocs != NULL)
-    free (free_relocs);
-
   if (free_contents != NULL)
     free (free_contents);
 
@@ -3074,6 +3079,9 @@ describe_flags (flagword flags)
   else
     strcat (buf, ", GCC ABI");
 
+  if (flags & E_FLAG_RX_SINSNS_SET)
+    strcat (buf, flags & E_FLAG_RX_SINSNS_YES ? ", uses String instructions" : ", bans String instructions");
+
   return buf;
 }
 
@@ -3100,8 +3108,22 @@ rx_elf_merge_private_bfd_data (bfd * ibfd, bfd * obfd)
     {
       flagword known_flags;
 
+      if (old_flags & E_FLAG_RX_SINSNS_SET)
+	{
+	  if ((new_flags & E_FLAG_RX_SINSNS_SET) == 0)
+	    {
+	      new_flags &= ~ E_FLAG_RX_SINSNS_MASK;
+	      new_flags |= (old_flags & E_FLAG_RX_SINSNS_MASK);
+	    }
+	}
+      else if (new_flags & E_FLAG_RX_SINSNS_SET)
+	{
+	  old_flags &= ~ E_FLAG_RX_SINSNS_MASK;
+	  old_flags |= (new_flags & E_FLAG_RX_SINSNS_MASK);
+	}
+
       known_flags = E_FLAG_RX_ABI | E_FLAG_RX_64BIT_DOUBLES
-	| E_FLAG_RX_DSP | E_FLAG_RX_PID;
+	| E_FLAG_RX_DSP | E_FLAG_RX_PID | E_FLAG_RX_SINSNS_MASK;
 
       if ((old_flags ^ new_flags) & known_flags)
 	{
@@ -3207,6 +3229,8 @@ rx_elf_object_p (bfd * abfd)
 
 	  if (phdr[i].p_filesz
 	      && phdr[i].p_offset <= (bfd_vma) sec->sh_offset
+	      && sec->sh_size > 0
+	      && sec->sh_type != SHT_NOBITS
 	      && (bfd_vma)sec->sh_offset <= phdr[i].p_offset + (phdr[i].p_filesz - 1))
 	    {
 	      /* Found one!  The difference between the two addresses,

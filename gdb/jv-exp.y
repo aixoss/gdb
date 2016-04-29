@@ -1,5 +1,5 @@
 /* YACC parser for Java expressions, for GDB.
-   Copyright (C) 1997-2015 Free Software Foundation, Inc.
+   Copyright (C) 1997-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -355,7 +355,7 @@ QualifiedName:
 		    {
 		      char *buf;
 
-		      buf = malloc ($$.length + 1);
+		      buf = (char *) malloc ($$.length + 1);
 		      make_cleanup (free, buf);
 		      sprintf (buf, "%.*s.%.*s",
 			       $1.length, $1.ptr, $3.length, $3.ptr);
@@ -842,7 +842,7 @@ parse_number (struct parser_state *par_state,
 
 struct token
 {
-  char *operator;
+  char *oper;
   int token;
   enum exp_opcode opcode;
 };
@@ -896,7 +896,7 @@ yylex (void)
   tokstart = lexptr;
   /* See if it is a special token of length 3.  */
   for (i = 0; i < sizeof tokentab3 / sizeof tokentab3[0]; i++)
-    if (strncmp (tokstart, tokentab3[i].operator, 3) == 0)
+    if (strncmp (tokstart, tokentab3[i].oper, 3) == 0)
       {
 	lexptr += 3;
 	yylval.opcode = tokentab3[i].opcode;
@@ -905,7 +905,7 @@ yylex (void)
 
   /* See if it is a special token of length 2.  */
   for (i = 0; i < sizeof tokentab2 / sizeof tokentab2[0]; i++)
-    if (strncmp (tokstart, tokentab2[i].operator, 2) == 0)
+    if (strncmp (tokstart, tokentab2[i].oper, 2) == 0)
       {
 	lexptr += 2;
 	yylval.opcode = tokentab2[i].opcode;
@@ -1270,24 +1270,22 @@ push_variable (struct parser_state *par_state, struct stoken name)
 {
   char *tmp = copy_name (name);
   struct field_of_this_result is_a_field_of_this;
-  struct symbol *sym;
+  struct block_symbol sym;
 
   sym = lookup_symbol (tmp, expression_context_block, VAR_DOMAIN,
 		       &is_a_field_of_this);
-  if (sym && SYMBOL_CLASS (sym) != LOC_TYPEDEF)
+  if (sym.symbol && SYMBOL_CLASS (sym.symbol) != LOC_TYPEDEF)
     {
-      if (symbol_read_needs_frame (sym))
+      if (symbol_read_needs_frame (sym.symbol))
 	{
 	  if (innermost_block == 0 ||
-	      contained_in (block_found, innermost_block))
-	    innermost_block = block_found;
+	      contained_in (sym.block, innermost_block))
+	    innermost_block = sym.block;
 	}
 
       write_exp_elt_opcode (par_state, OP_VAR_VALUE);
-      /* We want to use the selected frame, not another more inner frame
-	 which happens to be in the same block.  */
-      write_exp_elt_block (par_state, NULL);
-      write_exp_elt_sym (par_state, sym);
+      write_exp_elt_block (par_state, sym.block);
+      write_exp_elt_sym (par_state, sym.symbol);
       write_exp_elt_opcode (par_state, OP_VAR_VALUE);
       return 1;
     }
@@ -1296,8 +1294,8 @@ push_variable (struct parser_state *par_state, struct stoken name)
       /* it hangs off of `this'.  Must not inadvertently convert from a
 	 method call to data ref.  */
       if (innermost_block == 0 || 
-	  contained_in (block_found, innermost_block))
-	innermost_block = block_found;
+	  contained_in (sym.block, innermost_block))
+	innermost_block = sym.block;
       write_exp_elt_opcode (par_state, OP_THIS);
       write_exp_elt_opcode (par_state, OP_THIS);
       write_exp_elt_opcode (par_state, STRUCTOP_PTR);
@@ -1461,21 +1459,21 @@ static struct expression *
 copy_exp (struct expression *expr, int endpos)
 {
   int len = length_of_subexp (expr, endpos);
-  struct expression *new
-    = (struct expression *) malloc (sizeof (*new) + EXP_ELEM_TO_BYTES (len));
+  struct expression *newobj
+    = (struct expression *) malloc (sizeof (*newobj) + EXP_ELEM_TO_BYTES (len));
 
-  new->nelts = len;
-  memcpy (new->elts, expr->elts + endpos - len, EXP_ELEM_TO_BYTES (len));
-  new->language_defn = 0;
+  newobj->nelts = len;
+  memcpy (newobj->elts, expr->elts + endpos - len, EXP_ELEM_TO_BYTES (len));
+  newobj->language_defn = 0;
 
-  return new;
+  return newobj;
 }
 
 /* Insert the expression NEW into the current expression (expout) at POS.  */
 static void
-insert_exp (struct parser_state *par_state, int pos, struct expression *new)
+insert_exp (struct parser_state *par_state, int pos, struct expression *newobj)
 {
-  int newlen = new->nelts;
+  int newlen = newobj->nelts;
   int i;
 
   /* Grow expout if necessary.  In this function's only use at present,
@@ -1485,7 +1483,7 @@ insert_exp (struct parser_state *par_state, int pos, struct expression *new)
   for (i = par_state->expout_ptr - 1; i >= pos; i--)
     par_state->expout->elts[i + newlen] = par_state->expout->elts[i];
   
-  memcpy (par_state->expout->elts + pos, new->elts,
+  memcpy (par_state->expout->elts + pos, newobj->elts,
 	  EXP_ELEM_TO_BYTES (newlen));
   par_state->expout_ptr += newlen;
 }

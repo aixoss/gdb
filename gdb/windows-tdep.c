@@ -1,4 +1,4 @@
-/* Copyright (C) 2008-2015 Free Software Foundation, Inc.
+/* Copyright (C) 2008-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -33,6 +33,7 @@
 #include "complaints.h"
 #include "solib.h"
 #include "solib-target.h"
+#include "gdbcore.h"
 
 struct cmd_list_element *info_w32_cmdlist;
 
@@ -320,7 +321,7 @@ display_one_tib (ptid_t ptid)
       max = tib_size / size;
     }
   
-  tib = alloca (tib_size);
+  tib = (gdb_byte *) alloca (tib_size);
 
   if (target_get_tib_address (ptid, &thread_local_base) == 0)
     {
@@ -360,31 +361,12 @@ display_one_tib (ptid_t ptid)
   return 1;  
 }
 
-/* Display thread information block of a thread specified by ARGS.
-   If ARGS is empty, display thread information block of current_thread
-   if current_thread is non NULL.
-   Otherwise ARGS is parsed and converted to a integer that should
-   be the windows ThreadID (not the internal GDB thread ID).  */
+/* Display thread information block of the current thread.  */
 
 static void
 display_tib (char * args, int from_tty)
 {
-  if (args)
-    {
-      struct thread_info *tp;
-      int gdb_id = value_as_long (parse_and_eval (args));
-
-      tp = find_thread_id (gdb_id);
-
-      if (!tp)
-	error (_("Thread ID %d not known."), gdb_id);
-
-      if (!target_thread_alive (tp->ptid))
-	error (_("Thread ID %d has terminated."), gdb_id);
-
-      display_one_tib (tp->ptid);
-    }
-  else if (!ptid_equal (inferior_ptid, null_ptid))
+  if (!ptid_equal (inferior_ptid, null_ptid))
     display_one_tib (inferior_ptid);
 }
 
@@ -401,7 +383,7 @@ windows_xfer_shared_library (const char* so_name, CORE_ADDR load_addr,
   obstack_grow_str (obstack, p);
   xfree (p);
   obstack_grow_str (obstack, "\"><segment address=\"");
-  dll = gdb_bfd_open_maybe_remote (so_name);
+  dll = gdb_bfd_open (so_name, gnutarget, -1);
   /* The following calls are OK even if dll is NULL.
      The default value 0x1000 is returned by pe_text_section_offset
      in that case.  */

@@ -3,7 +3,7 @@
 
 /* Dynamic architecture support for GDB, the GNU debugger.
 
-   Copyright (C) 1998-2015 Free Software Foundation, Inc.
+   Copyright (C) 1998-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -11,12 +11,12 @@
    it under the terms of the GNU General Public License as published by
    the Free Software Foundation; either version 3 of the License, or
    (at your option) any later version.
-  
+
    This program is distributed in the hope that it will be useful,
    but WITHOUT ANY WARRANTY; without even the implied warranty of
    MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
    GNU General Public License for more details.
-  
+
    You should have received a copy of the GNU General Public License
    along with this program.  If not, see <http://www.gnu.org/licenses/>.  */
 
@@ -54,15 +54,18 @@ struct target_desc;
 struct objfile;
 struct symbol;
 struct displaced_step_closure;
-struct core_regset_section;
 struct syscall;
 struct agent_expr;
 struct axs_value;
 struct stap_parse_info;
+struct parser_state;
 struct ravenscar_arch_ops;
 struct elf_internal_linux_prpsinfo;
 struct mem_range;
 struct syscalls_info;
+struct thread_info;
+
+#include "regcache.h"
 
 /* The architecture associated with the inferior through the
    connection to the target.
@@ -332,7 +335,8 @@ typedef int (gdbarch_sdb_reg_to_regnum_ftype) (struct gdbarch *gdbarch, int sdb_
 extern int gdbarch_sdb_reg_to_regnum (struct gdbarch *gdbarch, int sdb_regnr);
 extern void set_gdbarch_sdb_reg_to_regnum (struct gdbarch *gdbarch, gdbarch_sdb_reg_to_regnum_ftype *sdb_reg_to_regnum);
 
-/* Provide a default mapping from a DWARF2 register number to a gdb REGNUM. */
+/* Provide a default mapping from a DWARF2 register number to a gdb REGNUM.
+   Return -1 for bad REGNUM.  Note: Several targets get this wrong. */
 
 typedef int (gdbarch_dwarf2_reg_to_regnum_ftype) (struct gdbarch *gdbarch, int dwarf2_regnr);
 extern int gdbarch_dwarf2_reg_to_regnum (struct gdbarch *gdbarch, int dwarf2_regnr);
@@ -682,7 +686,7 @@ extern void set_gdbarch_in_solib_return_trampoline (struct gdbarch *gdbarch, gdb
 
 /* A target might have problems with watchpoints as soon as the stack
    frame of the current function has been destroyed.  This mostly happens
-   as the first action in a funtion's epilogue.  in_function_epilogue_p()
+   as the first action in a function's epilogue.  stack_frame_destroyed_p()
    is defined to return a non-zero value if either the given addr is one
    instruction after the stack destroying instruction up to the trailing
    return instruction or if we can figure out that the stack frame has
@@ -690,9 +694,9 @@ extern void set_gdbarch_in_solib_return_trampoline (struct gdbarch *gdbarch, gdb
    which don't suffer from that problem could just let this functionality
    untouched. */
 
-typedef int (gdbarch_in_function_epilogue_p_ftype) (struct gdbarch *gdbarch, CORE_ADDR addr);
-extern int gdbarch_in_function_epilogue_p (struct gdbarch *gdbarch, CORE_ADDR addr);
-extern void set_gdbarch_in_function_epilogue_p (struct gdbarch *gdbarch, gdbarch_in_function_epilogue_p_ftype *in_function_epilogue_p);
+typedef int (gdbarch_stack_frame_destroyed_p_ftype) (struct gdbarch *gdbarch, CORE_ADDR addr);
+extern int gdbarch_stack_frame_destroyed_p (struct gdbarch *gdbarch, CORE_ADDR addr);
+extern void set_gdbarch_stack_frame_destroyed_p (struct gdbarch *gdbarch, gdbarch_stack_frame_destroyed_p_ftype *stack_frame_destroyed_p);
 
 /* Process an ELF symbol in the minimal symbol table in a backend-specific
    way.  Normally this hook is supposed to do nothing, however if required,
@@ -863,6 +867,14 @@ typedef char * (gdbarch_core_pid_to_str_ftype) (struct gdbarch *gdbarch, ptid_t 
 extern char * gdbarch_core_pid_to_str (struct gdbarch *gdbarch, ptid_t ptid);
 extern void set_gdbarch_core_pid_to_str (struct gdbarch *gdbarch, gdbarch_core_pid_to_str_ftype *core_pid_to_str);
 
+/* How the core target extracts the name of a thread from a core file. */
+
+extern int gdbarch_core_thread_name_p (struct gdbarch *gdbarch);
+
+typedef const char * (gdbarch_core_thread_name_ftype) (struct gdbarch *gdbarch, struct thread_info *thr);
+extern const char * gdbarch_core_thread_name (struct gdbarch *gdbarch, struct thread_info *thr);
+extern void set_gdbarch_core_thread_name (struct gdbarch *gdbarch, gdbarch_core_thread_name_ftype *core_thread_name);
+
 /* BFD target to use when generating a core file. */
 
 extern int gdbarch_gcore_bfd_target_p (struct gdbarch *gdbarch);
@@ -920,7 +932,11 @@ extern void set_gdbarch_max_insn_length (struct gdbarch *gdbarch, ULONGEST max_i
   
    If your architecture doesn't need to adjust instructions before
    single-stepping them, consider using simple_displaced_step_copy_insn
-   here. */
+   here.
+  
+   If the instruction cannot execute out of line, return NULL.  The
+   core falls back to stepping past the instruction in-line instead in
+   that case. */
 
 extern int gdbarch_displaced_step_copy_insn_p (struct gdbarch *gdbarch);
 
@@ -1247,6 +1263,41 @@ typedef int (gdbarch_stap_parse_special_token_ftype) (struct gdbarch *gdbarch, s
 extern int gdbarch_stap_parse_special_token (struct gdbarch *gdbarch, struct stap_parse_info *p);
 extern void set_gdbarch_stap_parse_special_token (struct gdbarch *gdbarch, gdbarch_stap_parse_special_token_ftype *stap_parse_special_token);
 
+/* DTrace related functions.
+   The expression to compute the NARTGth+1 argument to a DTrace USDT probe.
+   NARG must be >= 0. */
+
+extern int gdbarch_dtrace_parse_probe_argument_p (struct gdbarch *gdbarch);
+
+typedef void (gdbarch_dtrace_parse_probe_argument_ftype) (struct gdbarch *gdbarch, struct parser_state *pstate, int narg);
+extern void gdbarch_dtrace_parse_probe_argument (struct gdbarch *gdbarch, struct parser_state *pstate, int narg);
+extern void set_gdbarch_dtrace_parse_probe_argument (struct gdbarch *gdbarch, gdbarch_dtrace_parse_probe_argument_ftype *dtrace_parse_probe_argument);
+
+/* True if the given ADDR does not contain the instruction sequence
+   corresponding to a disabled DTrace is-enabled probe. */
+
+extern int gdbarch_dtrace_probe_is_enabled_p (struct gdbarch *gdbarch);
+
+typedef int (gdbarch_dtrace_probe_is_enabled_ftype) (struct gdbarch *gdbarch, CORE_ADDR addr);
+extern int gdbarch_dtrace_probe_is_enabled (struct gdbarch *gdbarch, CORE_ADDR addr);
+extern void set_gdbarch_dtrace_probe_is_enabled (struct gdbarch *gdbarch, gdbarch_dtrace_probe_is_enabled_ftype *dtrace_probe_is_enabled);
+
+/* Enable a DTrace is-enabled probe at ADDR. */
+
+extern int gdbarch_dtrace_enable_probe_p (struct gdbarch *gdbarch);
+
+typedef void (gdbarch_dtrace_enable_probe_ftype) (struct gdbarch *gdbarch, CORE_ADDR addr);
+extern void gdbarch_dtrace_enable_probe (struct gdbarch *gdbarch, CORE_ADDR addr);
+extern void set_gdbarch_dtrace_enable_probe (struct gdbarch *gdbarch, gdbarch_dtrace_enable_probe_ftype *dtrace_enable_probe);
+
+/* Disable a DTrace is-enabled probe at ADDR. */
+
+extern int gdbarch_dtrace_disable_probe_p (struct gdbarch *gdbarch);
+
+typedef void (gdbarch_dtrace_disable_probe_ftype) (struct gdbarch *gdbarch, CORE_ADDR addr);
+extern void gdbarch_dtrace_disable_probe (struct gdbarch *gdbarch, CORE_ADDR addr);
+extern void set_gdbarch_dtrace_disable_probe (struct gdbarch *gdbarch, gdbarch_dtrace_disable_probe_ftype *dtrace_disable_probe);
+
 /* True if the list of shared libraries is one and only for all
    processes, as opposed to a list of shared libraries per inferior.
    This usually means that all processes, although may or may not share
@@ -1272,8 +1323,8 @@ extern void set_gdbarch_has_shared_address_space (struct gdbarch *gdbarch, gdbar
 
 /* True if a fast tracepoint can be set at an address. */
 
-typedef int (gdbarch_fast_tracepoint_valid_at_ftype) (struct gdbarch *gdbarch, CORE_ADDR addr, int *isize, char **msg);
-extern int gdbarch_fast_tracepoint_valid_at (struct gdbarch *gdbarch, CORE_ADDR addr, int *isize, char **msg);
+typedef int (gdbarch_fast_tracepoint_valid_at_ftype) (struct gdbarch *gdbarch, CORE_ADDR addr, char **msg);
+extern int gdbarch_fast_tracepoint_valid_at (struct gdbarch *gdbarch, CORE_ADDR addr, char **msg);
 extern void set_gdbarch_fast_tracepoint_valid_at (struct gdbarch *gdbarch, gdbarch_fast_tracepoint_valid_at_ftype *fast_tracepoint_valid_at);
 
 /* Return the "auto" target charset. */
@@ -1402,6 +1453,13 @@ typedef CORE_ADDR (gdbarch_infcall_mmap_ftype) (CORE_ADDR size, unsigned prot);
 extern CORE_ADDR gdbarch_infcall_mmap (struct gdbarch *gdbarch, CORE_ADDR size, unsigned prot);
 extern void set_gdbarch_infcall_mmap (struct gdbarch *gdbarch, gdbarch_infcall_mmap_ftype *infcall_mmap);
 
+/* Deallocate SIZE bytes of memory at ADDR in inferior from gdbarch_infcall_mmap.
+   Print a warning if it is not possible. */
+
+typedef void (gdbarch_infcall_munmap_ftype) (CORE_ADDR addr, CORE_ADDR size);
+extern void gdbarch_infcall_munmap (struct gdbarch *gdbarch, CORE_ADDR addr, CORE_ADDR size);
+extern void set_gdbarch_infcall_munmap (struct gdbarch *gdbarch, gdbarch_infcall_munmap_ftype *infcall_munmap);
+
 /* Return string (caller has to use xfree for it) with options for GCC
    to produce code for this target, typically "-m64", "-m32" or "-m31".
    These options are put before CU's DW_AT_producer compilation options so that
@@ -1420,6 +1478,14 @@ extern void set_gdbarch_gcc_target_options (struct gdbarch *gdbarch, gdbarch_gcc
 typedef const char * (gdbarch_gnu_triplet_regexp_ftype) (struct gdbarch *gdbarch);
 extern const char * gdbarch_gnu_triplet_regexp (struct gdbarch *gdbarch);
 extern void set_gdbarch_gnu_triplet_regexp (struct gdbarch *gdbarch, gdbarch_gnu_triplet_regexp_ftype *gnu_triplet_regexp);
+
+/* Return the size in 8-bit bytes of an addressable memory unit on this
+   architecture.  This corresponds to the number of 8-bit bytes associated to
+   each address in memory. */
+
+typedef int (gdbarch_addressable_memory_unit_size_ftype) (struct gdbarch *gdbarch);
+extern int gdbarch_addressable_memory_unit_size (struct gdbarch *gdbarch);
+extern void set_gdbarch_addressable_memory_unit_size (struct gdbarch *gdbarch, gdbarch_addressable_memory_unit_size_ftype *addressable_memory_unit_size);
 
 /* Definition for an unknown syscall, used basically in error-cases.  */
 #define UNKNOWN_SYSCALL (-1)
@@ -1504,7 +1570,7 @@ struct gdbarch_info
   bfd *abfd;
 
   /* Use default: NULL (ZERO).  */
-  struct gdbarch_tdep_info *tdep_info;
+  void *tdep_info;
 
   /* Use default: GDB_OSABI_UNINITIALIZED (-1).  */
   enum gdb_osabi osabi;
@@ -1561,6 +1627,11 @@ extern void *gdbarch_obstack_zalloc (struct gdbarch *gdbarch, long size);
 #define GDBARCH_OBSTACK_CALLOC(GDBARCH, NR, TYPE) ((TYPE *) gdbarch_obstack_zalloc ((GDBARCH), (NR) * sizeof (TYPE)))
 #define GDBARCH_OBSTACK_ZALLOC(GDBARCH, TYPE) ((TYPE *) gdbarch_obstack_zalloc ((GDBARCH), sizeof (TYPE)))
 
+/* Duplicate STRING, returning an equivalent string that's allocated on the
+   obstack associated with GDBARCH.  The string is freed when the corresponding
+   architecture is also freed.  */
+
+extern char *gdbarch_obstack_strdup (struct gdbarch *arch, const char *string);
 
 /* Helper function.  Force an update of the current architecture.
 

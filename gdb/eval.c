@@ -1,6 +1,6 @@
 /* Evaluate expressions for GDB.
 
-   Copyright (C) 1986-2015 Free Software Foundation, Inc.
+   Copyright (C) 1986-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -212,7 +212,6 @@ fetch_subexp_value (struct expression *exp, int *pc, struct value **valp,
 		    int preserve_errors)
 {
   struct value *mark, *new_mark, *result;
-  volatile struct gdb_exception ex;
 
   *valp = NULL;
   if (resultp)
@@ -224,11 +223,11 @@ fetch_subexp_value (struct expression *exp, int *pc, struct value **valp,
   mark = value_mark ();
   result = NULL;
 
-  TRY_CATCH (ex, RETURN_MASK_ALL)
+  TRY
     {
       result = evaluate_subexp (NULL_TYPE, exp, pc, EVAL_NORMAL);
     }
-  if (ex.reason < 0)
+  CATCH (ex, RETURN_MASK_ALL)
     {
       /* Ignore memory errors if we want watchpoints pointing at
 	 inaccessible memory to still be created; otherwise, throw the
@@ -243,6 +242,7 @@ fetch_subexp_value (struct expression *exp, int *pc, struct value **valp,
 	  break;
 	}
     }
+  END_CATCH
 
   new_mark = value_mark ();
   if (mark == new_mark)
@@ -258,13 +258,16 @@ fetch_subexp_value (struct expression *exp, int *pc, struct value **valp,
 	*valp = result;
       else
 	{
-	  volatile struct gdb_exception except;
 
-	  TRY_CATCH (except, RETURN_MASK_ERROR)
+	  TRY
 	    {
 	      value_fetch_lazy (result);
 	      *valp = result;
 	    }
+	  CATCH (except, RETURN_MASK_ERROR)
+	    {
+	    }
+	  END_CATCH
 	}
     }
 
@@ -403,7 +406,8 @@ value_f90_subarray (struct value *array,
   int pc = (*pos) + 1;
   LONGEST low_bound, high_bound;
   struct type *range = check_typedef (TYPE_INDEX_TYPE (value_type (array)));
-  enum f90_range_type range_type = longest_to_int (exp->elts[pc].longconst);
+  enum f90_range_type range_type
+    = (enum f90_range_type) longest_to_int (exp->elts[pc].longconst);
  
   *pos += 3;
 
@@ -664,7 +668,6 @@ make_params (int num_types, struct type **param_types)
   TYPE_MAIN_TYPE (type) = XCNEW (struct main_type);
   TYPE_LENGTH (type) = 1;
   TYPE_CODE (type) = TYPE_CODE_METHOD;
-  TYPE_VPTR_FIELDNO (type) = -1;
   TYPE_CHAIN (type) = type;
   if (num_types > 0)
     {
@@ -763,16 +766,15 @@ evaluate_subexp_standard (struct type *expect_type,
 	 or reference to a base class and print object is on.  */
 
       {
-	volatile struct gdb_exception except;
 	struct value *ret = NULL;
 
-	TRY_CATCH (except, RETURN_MASK_ERROR)
+	TRY
 	  {
 	    ret = value_of_variable (exp->elts[pc + 2].symbol,
 				     exp->elts[pc + 1].block);
 	  }
 
-	if (except.reason < 0)
+	CATCH (except, RETURN_MASK_ERROR)
 	  {
 	    if (noside == EVAL_AVOID_SIDE_EFFECTS)
 	      ret = value_zero (SYMBOL_TYPE (exp->elts[pc + 2].symbol),
@@ -780,6 +782,7 @@ evaluate_subexp_standard (struct type *expect_type,
 	    else
 	      throw_exception (except);
 	  }
+	END_CATCH
 
 	return ret;
       }
@@ -995,7 +998,7 @@ evaluate_subexp_standard (struct type *expect_type,
 	  return set;
 	}
 
-      argvec = (struct value **) alloca (sizeof (struct value *) * nargs);
+      argvec = XALLOCAVEC (struct value *, nargs);
       for (tem = 0; tem < nargs; tem++)
 	{
 	  /* Ensure that array expressions are coerced into pointer
@@ -1061,7 +1064,7 @@ evaluate_subexp_standard (struct type *expect_type,
 	CORE_ADDR selector = 0;
 
 	int struct_return = 0;
-	int sub_no_side = 0;
+	enum noside sub_no_side = EVAL_NORMAL;
 
 	struct value *msg_send = NULL;
 	struct value *msg_send_stret = NULL;
@@ -1079,8 +1082,7 @@ evaluate_subexp_standard (struct type *expect_type,
 
 	selector = exp->elts[pc + 1].longconst;
 	nargs = exp->elts[pc + 2].longconst;
-	argvec = (struct value **) alloca (sizeof (struct value *) 
-					   * (nargs + 5));
+	argvec = XALLOCAVEC (struct value *, nargs + 5);
 
 	(*pos) += 3;
 
@@ -1224,7 +1226,7 @@ evaluate_subexp_standard (struct type *expect_type,
 
 	    block_for_pc (funaddr);
 
-	    CHECK_TYPEDEF (val_type);
+	    val_type = check_typedef (val_type);
 	  
 	    if ((val_type == NULL) 
 		|| (TYPE_CODE(val_type) == TYPE_CODE_ERROR))
@@ -1390,7 +1392,7 @@ evaluate_subexp_standard (struct type *expect_type,
 	  else if (TYPE_CODE (type) == TYPE_CODE_MEMBERPTR)
 	    {
 	      struct type *type_ptr
-		= lookup_pointer_type (TYPE_DOMAIN_TYPE (type));
+		= lookup_pointer_type (TYPE_SELF_TYPE (type));
 	      struct type *target_type_ptr
 		= lookup_pointer_type (TYPE_TARGET_TYPE (type));
 
@@ -1447,20 +1449,21 @@ evaluate_subexp_standard (struct type *expect_type,
 	         operator and continue evaluation.  */
 	      while (unop_user_defined_p (op, arg2))
 		{
-		  volatile struct gdb_exception except;
 		  struct value *value = NULL;
-		  TRY_CATCH (except, RETURN_MASK_ERROR)
+		  TRY
 		    {
 		      value = value_x_unop (arg2, op, noside);
 		    }
 
-		  if (except.reason < 0)
+		  CATCH (except, RETURN_MASK_ERROR)
 		    {
 		      if (except.error == NOT_FOUND_ERROR)
 			break;
 		      else
 			throw_exception (except);
 		    }
+		  END_CATCH
+
 		  arg2 = value;
 		}
 	    }
@@ -1489,7 +1492,7 @@ evaluate_subexp_standard (struct type *expect_type,
 	      function = cp_lookup_symbol_namespace (TYPE_TAG_NAME (type),
 						     name,
 						     get_selected_block (0),
-						     VAR_DOMAIN);
+						     VAR_DOMAIN).symbol;
 	      if (function == NULL)
 		error (_("No symbol \"%s\" in namespace \"%s\"."), 
 		       name, TYPE_TAG_NAME (type));
@@ -1859,7 +1862,7 @@ evaluate_subexp_standard (struct type *expect_type,
       arg3 = value_struct_elt (&arg1, NULL, &exp->elts[pc + 2].string,
 			       NULL, "structure");
       if (noside == EVAL_AVOID_SIDE_EFFECTS)
-	arg3 = value_zero (value_type (arg3), not_lval);
+	arg3 = value_zero (value_type (arg3), VALUE_LVAL (arg3));
       return arg3;
 
     case STRUCTOP_PTR:
@@ -1873,20 +1876,21 @@ evaluate_subexp_standard (struct type *expect_type,
          arg1 with the value returned by evaluating operator->().  */
       while (unop_user_defined_p (op, arg1))
 	{
-	  volatile struct gdb_exception except;
 	  struct value *value = NULL;
-	  TRY_CATCH (except, RETURN_MASK_ERROR)
+	  TRY
 	    {
 	      value = value_x_unop (arg1, op, noside);
 	    }
 
-	  if (except.reason < 0)
+	  CATCH (except, RETURN_MASK_ERROR)
 	    {
 	      if (except.error == NOT_FOUND_ERROR)
 		break;
 	      else
 		throw_exception (except);
 	    }
+	  END_CATCH
+
 	  arg1 = value;
 	}
 
@@ -1943,7 +1947,7 @@ evaluate_subexp_standard (struct type *expect_type,
 
 	case TYPE_CODE_MEMBERPTR:
 	  /* Now, convert these values to an address.  */
-	  arg1 = value_cast_pointers (lookup_pointer_type (TYPE_DOMAIN_TYPE (type)),
+	  arg1 = value_cast_pointers (lookup_pointer_type (TYPE_SELF_TYPE (type)),
 				      arg1, 1);
 
 	  mem_offset = value_as_long (arg2);
@@ -3085,7 +3089,7 @@ evaluate_subexp_for_sizeof (struct expression *exp, int *pos,
   /* $5.3.3/2 of the C++ Standard (n3290 draft) says of sizeof:
      "When applied to a reference or a reference type, the result is
      the size of the referenced type."  */
-  CHECK_TYPEDEF (type);
+  type = check_typedef (type);
   if (exp->language_defn->la_language == language_cplus
       && TYPE_CODE (type) == TYPE_CODE_REF)
     type = check_typedef (TYPE_TARGET_TYPE (type));

@@ -1,6 +1,6 @@
 /* CLI Definitions for GDB, the GNU debugger.
 
-   Copyright (C) 2002-2015 Free Software Foundation, Inc.
+   Copyright (C) 2002-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -39,6 +39,18 @@ static struct gdb_exception safe_execute_command (struct ui_out *uiout,
 /* Observers for several run control events.  If the interpreter is
    quiet (i.e., another interpreter is being run with
    interpreter-exec), print nothing.  */
+
+/* Observer for the normal_stop notification.  */
+
+static void
+cli_on_normal_stop (struct bpstats *bs, int print_frame)
+{
+  if (!interp_quiet_p (cli_interp))
+    {
+      if (print_frame)
+	print_stop_event (cli_uiout);
+    }
+}
 
 /* Observer for the signal_received notification.  */
 
@@ -109,6 +121,7 @@ static void *
 cli_interpreter_init (struct interp *self, int top_level)
 {
   /* If changing this, remember to update tui-interp.c as well.  */
+  observer_attach_normal_stop (cli_on_normal_stop);
   observer_attach_end_stepping_range (cli_on_end_stepping_range);
   observer_attach_signal_received (cli_on_signal_received);
   observer_attach_signal_exited (cli_on_signal_exited);
@@ -161,7 +174,8 @@ cli_interpreter_exec (void *data, const char *command_str)
 
   /* FIXME: cagney/2003-02-01: Need to const char *propogate
      safe_execute_command.  */
-  char *str = strcpy (alloca (strlen (command_str) + 1), command_str);
+  char *str = (char *) alloca (strlen (command_str) + 1);
+  strcpy (str, command_str);
 
   /* gdb_stdout could change between the time cli_uiout was
      initialized and now.  Since we're probably using a different
@@ -179,17 +193,22 @@ cli_interpreter_exec (void *data, const char *command_str)
 static struct gdb_exception
 safe_execute_command (struct ui_out *command_uiout, char *command, int from_tty)
 {
-  volatile struct gdb_exception e;
+  struct gdb_exception e = exception_none;
   struct ui_out *saved_uiout;
 
   /* Save and override the global ``struct ui_out'' builder.  */
   saved_uiout = current_uiout;
   current_uiout = command_uiout;
 
-  TRY_CATCH (e, RETURN_MASK_ALL)
+  TRY
     {
       execute_command (command, from_tty);
     }
+  CATCH (exception, RETURN_MASK_ALL)
+    {
+      e = exception;
+    }
+  END_CATCH
 
   /* Restore the global builder.  */
   current_uiout = saved_uiout;

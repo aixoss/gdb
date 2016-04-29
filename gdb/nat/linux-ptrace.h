@@ -1,4 +1,4 @@
-/* Copyright (C) 2011-2015 Free Software Foundation, Inc.
+/* Copyright (C) 2011-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -20,7 +20,7 @@
 
 struct buffer;
 
-#include <sys/ptrace.h>
+#include "nat/gdb_ptrace.h"
 
 #ifdef __UCLIBC__
 #if !(defined(__UCLIBC_HAS_MMU__) || defined(__ARCH_HAS_MMU__))
@@ -42,6 +42,14 @@ struct buffer;
 # define PTRACE_GETSIGINFO 0x4202
 # define PTRACE_SETSIGINFO 0x4203
 #endif /* PTRACE_GETSIGINF */
+
+#ifndef PTRACE_GETREGSET
+#define PTRACE_GETREGSET	0x4204
+#endif
+
+#ifndef PTRACE_SETREGSET
+#define PTRACE_SETREGSET	0x4205
+#endif
 
 /* If the system headers did not provide the constants, hard-code the normal
    values.  */
@@ -88,6 +96,64 @@ struct buffer;
 #define __WALL          0x40000000 /* Wait for any child.  */
 #endif
 
+/* True if whether a breakpoint/watchpoint triggered can be determined
+   from the si_code of SIGTRAP's siginfo_t (TRAP_BRKPT/TRAP_HWBKPT).
+   That is, if the kernel can tell us whether the thread executed a
+   software breakpoint, we trust it.  The kernel will be determining
+   that from the hardware (e.g., from which exception was raised in
+   the CPU).  Relying on whether a breakpoint is planted in memory at
+   the time the SIGTRAP is processed to determine whether the thread
+   stopped for a software breakpoint can be too late.  E.g., the
+   breakpoint could have been removed since.  Or the thread could have
+   stepped an instruction the size of a breakpoint instruction, and
+   before the stop is processed a breakpoint is inserted at its
+   address.  Getting these wrong is disastrous on decr_pc_after_break
+   architectures.  The moribund location mechanism helps with that
+   somewhat but it is an heuristic, and can well fail.  Getting that
+   information out of the kernel and ultimately out of the CPU is the
+   way to go.  That said, some architecture may get the si_code wrong,
+   and as such we're leaving fallback code in place.  We'll remove
+   this after a while if no problem is reported.  */
+#define USE_SIGTRAP_SIGINFO 1
+
+/* The x86 kernel gets some of the si_code values backwards, like
+   this:
+
+   | what                                     | si_code    |
+   |------------------------------------------+------------|
+   | software breakpoints (int3)              | SI_KERNEL  |
+   | single-steps                             | TRAP_TRACE |
+   | single-stepping a syscall                | TRAP_BRKPT |
+   | user sent SIGTRAP                        | 0          |
+   | exec SIGTRAP (when no PTRACE_EVENT_EXEC) | 0          |
+   | hardware breakpoints/watchpoints         | TRAP_HWBPT |
+
+   That is, it reports SI_KERNEL for software breakpoints (and only
+   for those), and TRAP_BRKPT for single-stepping a syscall...  If the
+   kernel is ever fixed, we'll just have to detect it like we detect
+   optional ptrace features: by forking and debugging ourselves,
+   running to a breakpoint and checking what comes out of
+   siginfo->si_code.
+
+   The ppc kernel does use TRAP_BRKPT for software breakpoints
+   in PowerPC code, but it uses SI_KERNEL for software breakpoints
+   in SPU code on a Cell/B.E.  However, SI_KERNEL is never seen
+   on a SIGTRAP for any other reason.
+
+   The generic Linux target code should use GDB_ARCH_IS_TRAP_BRKPT
+   instead of TRAP_BRKPT to abstract out these peculiarities.  */
+#if defined __i386__ || defined __x86_64__
+# define GDB_ARCH_IS_TRAP_BRKPT(X) ((X) == SI_KERNEL)
+#elif defined __powerpc__
+# define GDB_ARCH_IS_TRAP_BRKPT(X) ((X) == SI_KERNEL || (X) == TRAP_BRKPT)
+#else
+# define GDB_ARCH_IS_TRAP_BRKPT(X) ((X) == TRAP_BRKPT)
+#endif
+
+#ifndef TRAP_HWBKPT
+# define TRAP_HWBKPT 4
+#endif
+
 extern void linux_ptrace_attach_fail_reason (pid_t pid, struct buffer *buffer);
 
 /* Find all possible reasons we could have failed to attach to PTID
@@ -98,14 +164,16 @@ extern void linux_ptrace_attach_fail_reason (pid_t pid, struct buffer *buffer);
 extern char *linux_ptrace_attach_fail_reason_string (ptid_t ptid, int err);
 
 extern void linux_ptrace_init_warnings (void);
+extern void linux_check_ptrace_features (void);
 extern void linux_enable_event_reporting (pid_t pid, int attached);
 extern void linux_disable_event_reporting (pid_t pid);
 extern int linux_supports_tracefork (void);
+extern int linux_supports_traceexec (void);
 extern int linux_supports_traceclone (void);
 extern int linux_supports_tracevforkdone (void);
 extern int linux_supports_tracesysgood (void);
-extern void linux_ptrace_set_additional_flags (int);
 extern int linux_ptrace_get_extended_event (int wstat);
 extern int linux_is_extended_waitstatus (int wstat);
+extern int linux_wstatus_maybe_breakpoint (int wstat);
 
 #endif /* COMMON_LINUX_PTRACE_H */

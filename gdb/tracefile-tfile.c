@@ -1,6 +1,6 @@
 /* Trace file TFILE format support in GDB.
 
-   Copyright (C) 1997-2015 Free Software Foundation, Inc.
+   Copyright (C) 1997-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -327,7 +327,7 @@ struct trace_file_writer *
 tfile_trace_file_writer_new (void)
 {
   struct tfile_trace_file_writer *writer
-    = xmalloc (sizeof (struct tfile_trace_file_writer));
+    = XNEW (struct tfile_trace_file_writer);
 
   writer->base.ops = &tfile_write_ops;
   writer->fp = NULL;
@@ -378,7 +378,6 @@ tfile_read (gdb_byte *readbuf, int size)
 static void
 tfile_open (const char *arg, int from_tty)
 {
-  volatile struct gdb_exception ex;
   char *temp;
   struct cleanup *old_chain;
   int flags;
@@ -426,7 +425,7 @@ tfile_open (const char *arg, int from_tty)
 
   bytes += TRACE_HEADER_SIZE;
   if (!(header[0] == 0x7f
-	&& (strncmp (header + 1, "TRACE0\n", 7) == 0)))
+	&& (startswith (header + 1, "TRACE0\n"))))
     error (_("File is not a valid trace file."));
 
   push_target (&tfile_ops);
@@ -443,7 +442,7 @@ tfile_open (const char *arg, int from_tty)
   ts->disconnected_tracing = 0;
   ts->circular_buffer = 0;
 
-  TRY_CATCH (ex, RETURN_MASK_ALL)
+  TRY
     {
       /* Read through a section of newline-terminated lines that
 	 define things like tracepoints.  */
@@ -476,12 +475,13 @@ tfile_open (const char *arg, int from_tty)
       if (trace_regblock_size == 0)
 	error (_("No register block size recorded in trace file"));
     }
-  if (ex.reason < 0)
+  CATCH (ex, RETURN_MASK_ALL)
     {
       /* Remove the partially set up target.  */
       unpush_target (&tfile_ops);
       throw_exception (ex);
     }
+  END_CATCH
 
   inferior_appeared (current_inferior (), TFILE_PID);
   inferior_ptid = pid_to_ptid (TFILE_PID);
@@ -510,22 +510,22 @@ tfile_interp_line (char *line, struct uploaded_tp **utpp,
 {
   char *p = line;
 
-  if (strncmp (p, "R ", strlen ("R ")) == 0)
+  if (startswith (p, "R "))
     {
       p += strlen ("R ");
       trace_regblock_size = strtol (p, &p, 16);
     }
-  else if (strncmp (p, "status ", strlen ("status ")) == 0)
+  else if (startswith (p, "status "))
     {
       p += strlen ("status ");
       parse_trace_status (p, current_trace_status ());
     }
-  else if (strncmp (p, "tp ", strlen ("tp ")) == 0)
+  else if (startswith (p, "tp "))
     {
       p += strlen ("tp ");
       parse_tracepoint_definition (p, utpp);
     }
-  else if (strncmp (p, "tsv ", strlen ("tsv ")) == 0)
+  else if (startswith (p, "tsv "))
     {
       p += strlen ("tsv ");
       parse_tsv_definition (p, utsvp);
@@ -713,7 +713,7 @@ typedef int (*walk_blocks_callback_func) (char blocktype, void *data);
 static int
 match_blocktype (char blocktype, void *data)
 {
-  char *wantedp = data;
+  char *wantedp = (char *) data;
 
   if (*wantedp == blocktype)
     return 1;
@@ -805,7 +805,7 @@ tfile_fetch_registers (struct target_ops *ops,
 
   if (traceframe_find_block_type ('R', 0) >= 0)
     {
-      gdb_byte *regs = alloca (trace_regblock_size);
+      gdb_byte *regs = (gdb_byte *) alloca (trace_regblock_size);
 
       tfile_read (regs, trace_regblock_size);
 
@@ -966,7 +966,7 @@ tfile_get_trace_state_variable_value (struct target_ops *self,
 static int
 build_traceframe_info (char blocktype, void *data)
 {
-  struct traceframe_info *info = data;
+  struct traceframe_info *info = (struct traceframe_info *) data;
 
   switch (blocktype)
     {

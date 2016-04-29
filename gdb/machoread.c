@@ -1,5 +1,5 @@
 /* Darwin support for GDB, the GNU debugger.
-   Copyright (C) 2008-2015 Free Software Foundation, Inc.
+   Copyright (C) 2008-2016 Free Software Foundation, Inc.
 
    Contributed by AdaCore.
 
@@ -343,7 +343,7 @@ macho_symtab_read (struct objfile *objfile,
 static int
 get_archive_prefix_len (const char *name)
 {
-  char *lparen;
+  const char *lparen;
   int name_len = strlen (name);
 
   if (name_len == 0 || name[name_len - 1] != ')')
@@ -783,7 +783,7 @@ macho_check_dsym (struct objfile *objfile, char **filenamep)
   size_t dsym_len = strlen (DSYM_SUFFIX);
   const char *base_name = lbasename (objfile_name (objfile));
   size_t base_len = strlen (base_name);
-  char *dsym_filename = alloca (name_len + dsym_len + base_len + 1);
+  char *dsym_filename = (char *) alloca (name_len + dsym_len + base_len + 1);
   bfd *dsym_bfd;
   bfd_mach_o_load_command *main_uuid;
   bfd_mach_o_load_command *dsym_uuid;
@@ -1004,7 +1004,7 @@ macho_symfile_offsets (struct objfile *objfile,
       const char *bfd_sect_name = osect->the_bfd_section->name;
       int sect_index = osect - objfile->sections;;
 
-      if (strncmp (bfd_sect_name, "LC_SEGMENT.", 11) == 0)
+      if (startswith (bfd_sect_name, "LC_SEGMENT."))
 	bfd_sect_name += 11;
       if (strcmp (bfd_sect_name, "__TEXT") == 0
 	  || strcmp (bfd_sect_name, "__TEXT.__text") == 0)

@@ -1,6 +1,6 @@
 /* DWARF 2 location expression support for GDB.
 
-   Copyright (C) 2003-2015 Free Software Foundation, Inc.
+   Copyright (C) 2003-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -102,13 +102,40 @@ struct value *dwarf2_evaluate_loc_desc (struct type *type,
 					size_t size,
 					struct dwarf2_per_cu_data *per_cu);
 
-/* Converts a dynamic property into a static one.  ADDRESS is the address
-   of the object currently being evaluated and might be nedded.
+/* A chain of addresses that might be needed to resolve a dynamic
+   property.  */
+
+struct property_addr_info
+{
+  /* The type of the object whose dynamic properties, if any, are
+     being resolved.  */
+  struct type *type;
+
+  /* If not NULL, a buffer containing the object's value.  */
+  const gdb_byte *valaddr;
+
+  /* The address of that object.  */
+  CORE_ADDR addr;
+
+  /* If not NULL, a pointer to the info for the object containing
+     the object described by this node.  */
+  struct property_addr_info *next;
+};
+
+/* Converts a dynamic property into a static one.  FRAME is the frame in which
+   the property is evaluated; if NULL, the selected frame (if any) is used
+   instead.
+
+   ADDR_STACK is the stack of addresses that might be needed to evaluate the
+   property. When evaluating a property that is not related to a type, it can
+   be NULL.
+
    Returns 1 if PROP could be converted and the static value is passed back
    into VALUE, otherwise returns 0.  */
 
 int dwarf2_evaluate_property (const struct dynamic_prop *prop,
-			      CORE_ADDR address,
+			      struct frame_info *frame,
+			      struct property_addr_info *addr_stack,
 			      CORE_ADDR *value);
 
 /* A helper for the compiler interface that compiles a single dynamic
@@ -177,6 +204,23 @@ struct dwarf2_loclist_baton
   unsigned char from_dwo;
 };
 
+/* The baton used when a dynamic property is an offset to a parent
+   type.  This can be used, for instance, then the bound of an array
+   inside a record is determined by the value of another field inside
+   that record.  */
+
+struct dwarf2_offset_baton
+{
+  /* The offset from the parent type where the value of the property
+     is stored.  In the example provided above, this would be the offset
+     of the field being used as the array bound.  */
+  LONGEST offset;
+
+  /* The type of the object whose property is dynamic.  In the example
+     provided above, this would the the array's index type.  */
+  struct type *type;
+};
+
 /* A dynamic property is either expressed as a single location expression
    or a location list.  If the property is an indirection, pointing to
    another die, keep track of the targeted type in REFERENCED_TYPE.  */
@@ -184,7 +228,7 @@ struct dwarf2_loclist_baton
 struct dwarf2_property_baton
 {
   /* If the property is an indirection, we need to evaluate the location
-     LOCEXPR or LOCLIST in the context of the type REFERENCED_TYPE.
+     in the context of the type REFERENCED_TYPE.
      If NULL, the location is the actual value of the property.  */
   struct type *referenced_type;
   union
@@ -194,6 +238,9 @@ struct dwarf2_property_baton
 
     /* Location list to be evaluated in the context of REFERENCED_TYPE.  */
     struct dwarf2_loclist_baton loclist;
+
+    /* The location is an offset to REFERENCED_TYPE.  */
+    struct dwarf2_offset_baton offset_info;
   };
 };
 
@@ -246,9 +293,18 @@ extern struct call_site_chain *call_site_find_chain (struct gdbarch *gdbarch,
 /* A helper function to convert a DWARF register to an arch register.
    ARCH is the architecture.
    DWARF_REG is the register.
-   This will throw an exception if the DWARF register cannot be
-   translated to an architecture register.  */
+   If DWARF_REG is bad then a complaint is issued and -1 is returned.
+   Note: Some targets get this wrong.  */
 
-extern int dwarf2_reg_to_regnum_or_error (struct gdbarch *arch, int dwarf_reg);
+extern int dwarf_reg_to_regnum (struct gdbarch *arch, int dwarf_reg);
+
+/* A wrapper on dwarf_reg_to_regnum to throw an exception if the
+   DWARF register cannot be translated to an architecture register.
+   This takes a ULONGEST instead of an int because some callers actually have
+   a ULONGEST.  Negative values passed as ints will still be flagged as
+   invalid.  */
+
+extern int dwarf_reg_to_regnum_or_error (struct gdbarch *arch,
+					 ULONGEST dwarf_reg);
 
 #endif /* dwarf2loc.h */

@@ -1,7 +1,7 @@
 /* Private implementation details of interface between gdb and its
    extension languages.
 
-   Copyright (C) 2014-2015 Free Software Foundation, Inc.
+   Copyright (C) 2014-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -22,6 +22,7 @@
 #define EXTENSION_PRIV_H
 
 #include "extension.h"
+#include <signal.h>
 
 /* The return code for some API calls.  */
 
@@ -102,6 +103,11 @@ struct extension_language_script_ops
      If there's an error while processing the script this function may,
      but is not required to, throw an error.  */
   objfile_script_sourcer_func *objfile_script_sourcer;
+
+  /* Execute a script attached to an objfile.
+     If there's an error while processing the script this function may,
+     but is not required to, throw an error.  */
+  objfile_script_executor_func *objfile_script_executor;
 
   /* Return non-zero if auto-loading scripts in this extension language
      is enabled.  */
@@ -324,7 +330,7 @@ struct signal_handler
   int handler_saved;
 
   /* The signal handler.  */
-  RETSIGTYPE (*handler) ();
+  sighandler_t handler;
 };
 
 /* State necessary to restore the currently active extension language

@@ -1,5 +1,5 @@
 /* BFD backend for Extended Tektronix Hex Format  objects.
-   Copyright (C) 1992-2015 Free Software Foundation, Inc.
+   Copyright (C) 1992-2016 Free Software Foundation, Inc.
    Written by Steve Chamberlain of Cygnus Support <sac@cygnus.com>.
 
    This file is part of BFD, the Binary File Descriptor library.
@@ -397,7 +397,7 @@ first_phase (bfd *abfd, int type, char *src, char * src_end)
 	    return FALSE;
 	}
       alt_section = NULL;
-      while (*src)
+      while (src < src_end && *src)
 	{
 	  switch (*src)
 	    {
@@ -407,7 +407,13 @@ first_phase (bfd *abfd, int type, char *src, char * src_end)
 		return FALSE;
 	      if (!getvalue (&src, &val, src_end))
 		return FALSE;
+	      if (val < section->vma)
+		val = section->vma;
 	      section->size = val - section->vma;
+	      /* PR 17512: file: objdump-s-endless-loop.tekhex.
+	         Check for overlarge section sizes.  */
+	      if (section->size & 0x80000000)
+		return FALSE;
 	      section->flags = SEC_HAS_CONTENTS | SEC_LOAD | SEC_ALLOC;
 	      break;
 	    case '0':
@@ -453,7 +459,8 @@ first_phase (bfd *abfd, int type, char *src, char * src_end)
 		    else
 		      {
 			if (alt_section == NULL)
-			  alt_section = bfd_get_next_section_by_name (section);
+			  alt_section
+			    = bfd_get_next_section_by_name (NULL, section);
 			if (alt_section == NULL)
 			  alt_section = bfd_make_section_anyway_with_flags
 			    (abfd, section->name,
@@ -470,7 +477,8 @@ first_phase (bfd *abfd, int type, char *src, char * src_end)
 		    else
 		      {
 			if (alt_section == NULL)
-			  alt_section = bfd_get_next_section_by_name (section);
+			  alt_section
+			    = bfd_get_next_section_by_name (NULL, section);
 			if (alt_section == NULL)
 			  alt_section = bfd_make_section_anyway_with_flags
 			    (abfd, section->name,

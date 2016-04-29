@@ -1,6 +1,6 @@
 /* Python interface to line tables.
 
-   Copyright (C) 2013-2015 Free Software Foundation, Inc.
+   Copyright (C) 2013-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -28,7 +28,7 @@ typedef struct {
   CORE_ADDR pc;
 } linetable_entry_object;
 
-static PyTypeObject linetable_entry_object_type
+extern PyTypeObject linetable_entry_object_type
     CPYCHECKER_TYPE_OBJECT_FOR_TYPEDEF ("linetable_entry_object");
 
 typedef struct {
@@ -39,7 +39,7 @@ typedef struct {
   PyObject *symtab;
 } linetable_object;
 
-static PyTypeObject linetable_object_type
+extern PyTypeObject linetable_object_type
     CPYCHECKER_TYPE_OBJECT_FOR_TYPEDEF ("linetable_object");
 
 typedef struct {
@@ -52,10 +52,10 @@ typedef struct {
   PyObject *source;
 } ltpy_iterator_object;
 
-static PyTypeObject ltpy_iterator_object_type
+extern PyTypeObject ltpy_iterator_object_type
     CPYCHECKER_TYPE_OBJECT_FOR_TYPEDEF ("ltpy_iterator_object");
 
-/* Internal helper function to extract gdb.Symtab from a gdb.Linetable
+/* Internal helper function to extract gdb.Symtab from a gdb.LineTable
    object.  */
 
 static PyObject *
@@ -172,18 +172,21 @@ ltpy_get_pcs_for_line (PyObject *self, PyObject *args)
   linetable_entry_object *result;
   VEC (CORE_ADDR) *pcs = NULL;
   PyObject *tuple;
-  volatile struct gdb_exception except;
 
   LTPY_REQUIRE_VALID (self, symtab);
 
   if (! PyArg_ParseTuple (args, GDB_PY_LL_ARG, &py_line))
     return NULL;
 
-  TRY_CATCH (except, RETURN_MASK_ALL)
+  TRY
     {
       pcs = find_pcs_for_symtab_line (symtab, py_line, &best_entry);
     }
-  GDB_PY_HANDLE_EXCEPTION (except);
+  CATCH (except, RETURN_MASK_ALL)
+    {
+      GDB_PY_HANDLE_EXCEPTION (except);
+    }
+  END_CATCH
 
   tuple = build_line_table_tuple_from_pcs (py_line, pcs);
   VEC_free (CORE_ADDR, pcs);
@@ -224,8 +227,8 @@ ltpy_has_line (PyObject *self, PyObject *args)
   Py_RETURN_FALSE;
 }
 
-/* Implementation of gdb.LineTable.source_lines (self) -> FrozenSet.
-   Returns a Python FrozenSet that contains source line entries in the
+/* Implementation of gdb.LineTable.source_lines (self) -> List.
+   Returns a Python List that contains source line entries in the
    line table.  This function will just return the source lines
    without corresponding addresses.  */
 
@@ -285,7 +288,7 @@ ltpy_get_all_source_lines (PyObject *self, PyObject *args)
   return source_list;
 }
 
-/* Implementation of gdb.Linetable.is_valid (self) -> Boolean.
+/* Implementation of gdb.LineTable.is_valid (self) -> Boolean.
    Returns True if this line table object still exists in GDB.  */
 
 static PyObject *
@@ -346,7 +349,7 @@ gdbpy_initialize_linetable (void)
   return 0;
 }
 
-/* Linetable entry object get functions.  */
+/* LineTable entry object get functions.  */
 
 /* Implementation of gdb.LineTableEntry.line (self) -> Long.  Returns
    a long integer associated with the line table entry.  */
@@ -370,7 +373,7 @@ ltpy_entry_get_pc (PyObject *self, void *closure)
   return  gdb_py_object_from_longest (obj->pc);
 }
 
-/* Linetable iterator functions.  */
+/* LineTable iterator functions.  */
 
 /* Return a new line table iterator.  */
 
@@ -457,7 +460,7 @@ ltpy_iternext (PyObject *self)
   return NULL;
 }
 
-/* Implementation of gdb.LinetableIterator.is_valid (self) -> Boolean.
+/* Implementation of gdb.LineTableIterator.is_valid (self) -> Boolean.
    Returns True if this line table iterator object still exists in
    GDB.  */
 
@@ -485,15 +488,15 @@ Return executable locations for a given source line." },
     "has_line (lineno) -> Boolean\n\
 Return TRUE if this line has executable information, FALSE if not." },
   { "source_lines", ltpy_get_all_source_lines, METH_NOARGS,
-    "source_lines () -> FrozenSet\n\
-Return a frozen set of all executable source lines." },
+    "source_lines () -> List\n\
+Return a list of all executable source lines." },
   { "is_valid", ltpy_is_valid, METH_NOARGS,
     "is_valid () -> Boolean.\n\
-Return True if this Linetable is valid, False if not." },
+Return True if this LineTable is valid, False if not." },
   {NULL}  /* Sentinel */
 };
 
-static PyTypeObject linetable_object_type = {
+PyTypeObject linetable_object_type = {
   PyVarObject_HEAD_INIT (NULL, 0)
   "gdb.LineTable",	          /*tp_name*/
   sizeof (linetable_object),	  /*tp_basicsize*/
@@ -536,11 +539,11 @@ static PyTypeObject linetable_object_type = {
 static PyMethodDef ltpy_iterator_methods[] = {
   { "is_valid", ltpy_iter_is_valid, METH_NOARGS,
     "is_valid () -> Boolean.\n\
-Return True if this Linetable iterator is valid, False if not." },
+Return True if this LineTable iterator is valid, False if not." },
   {NULL}  /* Sentinel */
 };
 
-static PyTypeObject ltpy_iterator_object_type = {
+PyTypeObject ltpy_iterator_object_type = {
   PyVarObject_HEAD_INIT (NULL, 0)
   "gdb.LineTableIterator",		  /*tp_name*/
   sizeof (ltpy_iterator_object),  /*tp_basicsize*/
@@ -580,7 +583,7 @@ static PyGetSetDef linetable_entry_object_getset[] = {
   { NULL }  /* Sentinel */
 };
 
-static PyTypeObject linetable_entry_object_type = {
+PyTypeObject linetable_entry_object_type = {
   PyVarObject_HEAD_INIT (NULL, 0)
   "gdb.LineTableEntry",	          /*tp_name*/
   sizeof (linetable_entry_object), /*tp_basicsize*/

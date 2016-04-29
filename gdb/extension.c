@@ -1,6 +1,6 @@
 /* Interface between gdb and its extension languages.
 
-   Copyright (C) 2014-2015 Free Software Foundation, Inc.
+   Copyright (C) 2014-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -22,6 +22,7 @@
 
 #include "defs.h"
 #include <signal.h>
+#include "target.h"
 #include "auto-load.h"
 #include "breakpoint.h"
 #include "event-top.h"
@@ -61,6 +62,7 @@ static const struct extension_language_script_ops
 {
   source_gdb_script,
   source_gdb_objfile_script,
+  NULL, /* objfile_script_executor */
   auto_load_gdb_scripts_enabled
 };
 
@@ -284,6 +286,21 @@ ext_lang_objfile_script_sourcer (const struct extension_language_defn *extlang)
   gdb_assert (extlang->script_ops->objfile_script_sourcer != NULL);
 
   return extlang->script_ops->objfile_script_sourcer;
+}
+
+/* Return the objfile script "executor" function for EXTLANG.
+   This is the function that executes a script for a particular objfile.
+   If support for this language isn't compiled in, NULL is returned.
+   The extension language is not required to implement this function.  */
+
+objfile_script_executor_func *
+ext_lang_objfile_script_executor
+  (const struct extension_language_defn *extlang)
+{
+  if (extlang->script_ops == NULL)
+    return NULL;
+
+  return extlang->script_ops->objfile_script_executor;
 }
 
 /* Return non-zero if auto-loading of EXTLANG scripts is enabled.
@@ -691,7 +708,7 @@ static void
 install_gdb_sigint_handler (struct signal_handler *previous)
 {
   /* Save here to simplify comparison.  */
-  RETSIGTYPE (*handle_sigint_for_compare) () = handle_sigint;
+  sighandler_t handle_sigint_for_compare = handle_sigint;
 
   previous->handler = signal (SIGINT, handle_sigint);
   if (previous->handler != handle_sigint_for_compare)
@@ -730,19 +747,24 @@ set_active_ext_lang (const struct extension_language_defn *now_active)
     = XCNEW (struct active_ext_lang_state);
 
   previous->ext_lang = active_ext_lang;
+  previous->sigint_handler.handler_saved = 0;
   active_ext_lang = now_active;
 
-  /* If the newly active extension language uses cooperative SIGINT handling
-     then ensure GDB's SIGINT handler is installed.  */
-  if (now_active->language == EXT_LANG_GDB
-      || now_active->ops->check_quit_flag != NULL)
-    install_gdb_sigint_handler (&previous->sigint_handler);
+  if (target_terminal_is_ours ())
+    {
+      /* If the newly active extension language uses cooperative SIGINT
+	 handling then ensure GDB's SIGINT handler is installed.  */
+      if (now_active->language == EXT_LANG_GDB
+	  || now_active->ops->check_quit_flag != NULL)
+	install_gdb_sigint_handler (&previous->sigint_handler);
 
-  /* If there's a SIGINT recorded in the cooperative extension languages,
-     move it to the new language, or save it in GDB's global flag if the newly
-     active extension language doesn't use cooperative SIGINT handling.  */
-  if (check_quit_flag ())
-    set_quit_flag ();
+      /* If there's a SIGINT recorded in the cooperative extension languages,
+	 move it to the new language, or save it in GDB's global flag if the
+	 newly active extension language doesn't use cooperative SIGINT
+	 handling.  */
+      if (check_quit_flag ())
+	set_quit_flag ();
+    }
 
   return previous;
 }
@@ -756,16 +778,19 @@ restore_active_ext_lang (struct active_ext_lang_state *previous)
 
   active_ext_lang = previous->ext_lang;
 
-  /* Restore the previous SIGINT handler if one was saved.  */
-  if (previous->sigint_handler.handler_saved)
-    install_sigint_handler (&previous->sigint_handler);
+  if (target_terminal_is_ours ())
+    {
+      /* Restore the previous SIGINT handler if one was saved.  */
+      if (previous->sigint_handler.handler_saved)
+	install_sigint_handler (&previous->sigint_handler);
 
-  /* If there's a SIGINT recorded in the cooperative extension languages,
-     move it to the new language, or save it in GDB's global flag if the newly
-     active extension language doesn't use cooperative SIGINT handling.  */
-  if (check_quit_flag ())
-    set_quit_flag ();
-
+      /* If there's a SIGINT recorded in the cooperative extension languages,
+	 move it to the new language, or save it in GDB's global flag if the
+	 newly active extension language doesn't use cooperative SIGINT
+	 handling.  */
+      if (check_quit_flag ())
+	set_quit_flag ();
+    }
   xfree (previous);
 }
 

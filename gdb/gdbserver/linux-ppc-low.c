@@ -1,6 +1,6 @@
 /* GNU/Linux/PowerPC specific low level interface, for the remote server for
    GDB.
-   Copyright (C) 1995-2015 Free Software Foundation, Inc.
+   Copyright (C) 1995-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -23,12 +23,7 @@
 #include <elf.h>
 #include <asm/ptrace.h>
 
-/* These are in <asm/cputable.h> in current kernels.  */
-#define PPC_FEATURE_HAS_VSX		0x00000080
-#define PPC_FEATURE_HAS_ALTIVEC         0x10000000
-#define PPC_FEATURE_HAS_SPE             0x00800000
-#define PPC_FEATURE_CELL                0x00010000
-#define PPC_FEATURE_HAS_DFP             0x00000400
+#include "nat/ppc-linux.h"
 
 static unsigned long ppc_hwcap;
 
@@ -94,14 +89,6 @@ void init_registers_powerpc_isa205_vsx64l (void);
 extern const struct target_desc *tdesc_powerpc_isa205_vsx64l;
 
 #define ppc_num_regs 73
-
-/* This sometimes isn't defined.  */
-#ifndef PT_ORIG_R3
-#define PT_ORIG_R3 34
-#endif
-#ifndef PT_TRAP
-#define PT_TRAP 40
-#endif
 
 #ifdef __powerpc64__
 /* We use a constant for FPSCR instead of PT_FPSCR, because
@@ -359,7 +346,7 @@ ppc_get_hwcap (unsigned long *valp)
 {
   const struct target_desc *tdesc = current_process ()->tdesc;
   int wordsize = register_size (tdesc, 0);
-  unsigned char *data = alloca (2 * wordsize);
+  unsigned char *data = (unsigned char *) alloca (2 * wordsize);
   int offset = 0;
 
   while ((*the_target->read_auxv) (offset, data, 2 * wordsize) == 2 * wordsize)
@@ -390,11 +377,224 @@ ppc_get_hwcap (unsigned long *valp)
   return 0;
 }
 
-/* Forward declaration.  */
-static struct usrregs_info ppc_usrregs_info;
 #ifndef __powerpc64__
 static int ppc_regmap_adjusted;
 #endif
+
+
+/* Correct in either endianness.
+   This instruction is "twge r2, r2", which GDB uses as a software
+   breakpoint.  */
+static const unsigned int ppc_breakpoint = 0x7d821008;
+#define ppc_breakpoint_len 4
+
+/* Implementation of linux_target_ops method "sw_breakpoint_from_kind".  */
+
+static const gdb_byte *
+ppc_sw_breakpoint_from_kind (int kind, int *size)
+{
+  *size = ppc_breakpoint_len;
+  return (const gdb_byte *) &ppc_breakpoint;
+}
+
+static int
+ppc_breakpoint_at (CORE_ADDR where)
+{
+  unsigned int insn;
+
+  if (where & ((CORE_ADDR)1 << 63))
+    {
+      char mem_annex[32];
+      sprintf (mem_annex, "%d/mem", (int)((where >> 32) & 0x7fffffff));
+      (*the_target->qxfer_spu) (mem_annex, (unsigned char *) &insn,
+				NULL, where & 0xffffffff, 4);
+      if (insn == 0x3fff)
+	return 1;
+    }
+  else
+    {
+      (*the_target->read_memory) (where, (unsigned char *) &insn, 4);
+      if (insn == ppc_breakpoint)
+	return 1;
+      /* If necessary, recognize more trap instructions here.  GDB only uses
+	 the one.  */
+    }
+
+  return 0;
+}
+
+/* Provide only a fill function for the general register set.  ps_lgetregs
+   will use this for NPTL support.  */
+
+static void ppc_fill_gregset (struct regcache *regcache, void *buf)
+{
+  int i;
+
+  for (i = 0; i < 32; i++)
+    ppc_collect_ptrace_register (regcache, i, (char *) buf + ppc_regmap[i]);
+
+  for (i = 64; i < 70; i++)
+    ppc_collect_ptrace_register (regcache, i, (char *) buf + ppc_regmap[i]);
+
+  for (i = 71; i < 73; i++)
+    ppc_collect_ptrace_register (regcache, i, (char *) buf + ppc_regmap[i]);
+}
+
+#define SIZEOF_VSXREGS 32*8
+
+static void
+ppc_fill_vsxregset (struct regcache *regcache, void *buf)
+{
+  int i, base;
+  char *regset = (char *) buf;
+
+  if (!(ppc_hwcap & PPC_FEATURE_HAS_VSX))
+    return;
+
+  base = find_regno (regcache->tdesc, "vs0h");
+  for (i = 0; i < 32; i++)
+    collect_register (regcache, base + i, &regset[i * 8]);
+}
+
+static void
+ppc_store_vsxregset (struct regcache *regcache, const void *buf)
+{
+  int i, base;
+  const char *regset = (const char *) buf;
+
+  if (!(ppc_hwcap & PPC_FEATURE_HAS_VSX))
+    return;
+
+  base = find_regno (regcache->tdesc, "vs0h");
+  for (i = 0; i < 32; i++)
+    supply_register (regcache, base + i, &regset[i * 8]);
+}
+
+#define SIZEOF_VRREGS 33*16+4
+
+static void
+ppc_fill_vrregset (struct regcache *regcache, void *buf)
+{
+  int i, base;
+  char *regset = (char *) buf;
+
+  if (!(ppc_hwcap & PPC_FEATURE_HAS_ALTIVEC))
+    return;
+
+  base = find_regno (regcache->tdesc, "vr0");
+  for (i = 0; i < 32; i++)
+    collect_register (regcache, base + i, &regset[i * 16]);
+
+  collect_register_by_name (regcache, "vscr", &regset[32 * 16 + 12]);
+  collect_register_by_name (regcache, "vrsave", &regset[33 * 16]);
+}
+
+static void
+ppc_store_vrregset (struct regcache *regcache, const void *buf)
+{
+  int i, base;
+  const char *regset = (const char *) buf;
+
+  if (!(ppc_hwcap & PPC_FEATURE_HAS_ALTIVEC))
+    return;
+
+  base = find_regno (regcache->tdesc, "vr0");
+  for (i = 0; i < 32; i++)
+    supply_register (regcache, base + i, &regset[i * 16]);
+
+  supply_register_by_name (regcache, "vscr", &regset[32 * 16 + 12]);
+  supply_register_by_name (regcache, "vrsave", &regset[33 * 16]);
+}
+
+struct gdb_evrregset_t
+{
+  unsigned long evr[32];
+  unsigned long long acc;
+  unsigned long spefscr;
+};
+
+static void
+ppc_fill_evrregset (struct regcache *regcache, void *buf)
+{
+  int i, ev0;
+  struct gdb_evrregset_t *regset = (struct gdb_evrregset_t *) buf;
+
+  if (!(ppc_hwcap & PPC_FEATURE_HAS_SPE))
+    return;
+
+  ev0 = find_regno (regcache->tdesc, "ev0h");
+  for (i = 0; i < 32; i++)
+    collect_register (regcache, ev0 + i, &regset->evr[i]);
+
+  collect_register_by_name (regcache, "acc", &regset->acc);
+  collect_register_by_name (regcache, "spefscr", &regset->spefscr);
+}
+
+static void
+ppc_store_evrregset (struct regcache *regcache, const void *buf)
+{
+  int i, ev0;
+  const struct gdb_evrregset_t *regset = (const struct gdb_evrregset_t *) buf;
+
+  if (!(ppc_hwcap & PPC_FEATURE_HAS_SPE))
+    return;
+
+  ev0 = find_regno (regcache->tdesc, "ev0h");
+  for (i = 0; i < 32; i++)
+    supply_register (regcache, ev0 + i, &regset->evr[i]);
+
+  supply_register_by_name (regcache, "acc", &regset->acc);
+  supply_register_by_name (regcache, "spefscr", &regset->spefscr);
+}
+
+/* Support for hardware single step.  */
+
+static int
+ppc_supports_hardware_single_step (void)
+{
+  return 1;
+}
+
+static struct regset_info ppc_regsets[] = {
+  /* List the extra register sets before GENERAL_REGS.  That way we will
+     fetch them every time, but still fall back to PTRACE_PEEKUSER for the
+     general registers.  Some kernels support these, but not the newer
+     PPC_PTRACE_GETREGS.  */
+  { PTRACE_GETVSXREGS, PTRACE_SETVSXREGS, 0, SIZEOF_VSXREGS, EXTENDED_REGS,
+  ppc_fill_vsxregset, ppc_store_vsxregset },
+  { PTRACE_GETVRREGS, PTRACE_SETVRREGS, 0, SIZEOF_VRREGS, EXTENDED_REGS,
+    ppc_fill_vrregset, ppc_store_vrregset },
+  { PTRACE_GETEVRREGS, PTRACE_SETEVRREGS, 0, 32 * 4 + 8 + 4, EXTENDED_REGS,
+    ppc_fill_evrregset, ppc_store_evrregset },
+  { 0, 0, 0, 0, GENERAL_REGS, ppc_fill_gregset, NULL },
+  NULL_REGSET
+};
+
+static struct usrregs_info ppc_usrregs_info =
+  {
+    ppc_num_regs,
+    ppc_regmap,
+  };
+
+static struct regsets_info ppc_regsets_info =
+  {
+    ppc_regsets, /* regsets */
+    0, /* num_regsets */
+    NULL, /* disabled_regsets */
+  };
+
+static struct regs_info regs_info =
+  {
+    NULL, /* regset_bitmap */
+    &ppc_usrregs_info,
+    &ppc_regsets_info
+  };
+
+static const struct regs_info *
+ppc_regs_info (void)
+{
+  return &regs_info;
+}
 
 static void
 ppc_arch_setup (void)
@@ -411,13 +611,11 @@ ppc_arch_setup (void)
   current_process ()->tdesc = tdesc;
   ppc_hwcap = 0;
 
-  /* Only if the high bit of the MSR is set, we actually have
-     a 64-bit inferior.  */
   regcache = new_register_cache (tdesc);
   fetch_inferior_registers (regcache, find_regno (tdesc, "msr"));
   collect_register_by_name (regcache, "msr", &msr);
   free_register_cache (regcache);
-  if (msr < 0)
+  if (ppc64_64bit_inferior_p (msr))
     {
       ppc_get_hwcap (&ppc_hwcap);
       if (ppc_hwcap & PPC_FEATURE_CELL)
@@ -495,218 +693,6 @@ ppc_arch_setup (void)
   current_process ()->tdesc = tdesc;
 }
 
-/* Correct in either endianness.
-   This instruction is "twge r2, r2", which GDB uses as a software
-   breakpoint.  */
-static const unsigned int ppc_breakpoint = 0x7d821008;
-#define ppc_breakpoint_len 4
-
-static int
-ppc_breakpoint_at (CORE_ADDR where)
-{
-  unsigned int insn;
-
-  if (where & ((CORE_ADDR)1 << 63))
-    {
-      char mem_annex[32];
-      sprintf (mem_annex, "%d/mem", (int)((where >> 32) & 0x7fffffff));
-      (*the_target->qxfer_spu) (mem_annex, (unsigned char *) &insn,
-				NULL, where & 0xffffffff, 4);
-      if (insn == 0x3fff)
-	return 1;
-    }
-  else
-    {
-      (*the_target->read_memory) (where, (unsigned char *) &insn, 4);
-      if (insn == ppc_breakpoint)
-	return 1;
-      /* If necessary, recognize more trap instructions here.  GDB only uses
-	 the one.  */
-    }
-
-  return 0;
-}
-
-/* Provide only a fill function for the general register set.  ps_lgetregs
-   will use this for NPTL support.  */
-
-static void ppc_fill_gregset (struct regcache *regcache, void *buf)
-{
-  int i;
-
-  for (i = 0; i < 32; i++)
-    ppc_collect_ptrace_register (regcache, i, (char *) buf + ppc_regmap[i]);
-
-  for (i = 64; i < 70; i++)
-    ppc_collect_ptrace_register (regcache, i, (char *) buf + ppc_regmap[i]);
-
-  for (i = 71; i < 73; i++)
-    ppc_collect_ptrace_register (regcache, i, (char *) buf + ppc_regmap[i]);
-}
-
-#ifndef PTRACE_GETVSXREGS
-#define PTRACE_GETVSXREGS 27
-#define PTRACE_SETVSXREGS 28
-#endif
-
-#define SIZEOF_VSXREGS 32*8
-
-static void
-ppc_fill_vsxregset (struct regcache *regcache, void *buf)
-{
-  int i, base;
-  char *regset = buf;
-
-  if (!(ppc_hwcap & PPC_FEATURE_HAS_VSX))
-    return;
-
-  base = find_regno (regcache->tdesc, "vs0h");
-  for (i = 0; i < 32; i++)
-    collect_register (regcache, base + i, &regset[i * 8]);
-}
-
-static void
-ppc_store_vsxregset (struct regcache *regcache, const void *buf)
-{
-  int i, base;
-  const char *regset = buf;
-
-  if (!(ppc_hwcap & PPC_FEATURE_HAS_VSX))
-    return;
-
-  base = find_regno (regcache->tdesc, "vs0h");
-  for (i = 0; i < 32; i++)
-    supply_register (regcache, base + i, &regset[i * 8]);
-}
-
-#ifndef PTRACE_GETVRREGS
-#define PTRACE_GETVRREGS 18
-#define PTRACE_SETVRREGS 19
-#endif
-
-#define SIZEOF_VRREGS 33*16+4
-
-static void
-ppc_fill_vrregset (struct regcache *regcache, void *buf)
-{
-  int i, base;
-  char *regset = buf;
-
-  if (!(ppc_hwcap & PPC_FEATURE_HAS_ALTIVEC))
-    return;
-
-  base = find_regno (regcache->tdesc, "vr0");
-  for (i = 0; i < 32; i++)
-    collect_register (regcache, base + i, &regset[i * 16]);
-
-  collect_register_by_name (regcache, "vscr", &regset[32 * 16 + 12]);
-  collect_register_by_name (regcache, "vrsave", &regset[33 * 16]);
-}
-
-static void
-ppc_store_vrregset (struct regcache *regcache, const void *buf)
-{
-  int i, base;
-  const char *regset = buf;
-
-  if (!(ppc_hwcap & PPC_FEATURE_HAS_ALTIVEC))
-    return;
-
-  base = find_regno (regcache->tdesc, "vr0");
-  for (i = 0; i < 32; i++)
-    supply_register (regcache, base + i, &regset[i * 16]);
-
-  supply_register_by_name (regcache, "vscr", &regset[32 * 16 + 12]);
-  supply_register_by_name (regcache, "vrsave", &regset[33 * 16]);
-}
-
-#ifndef PTRACE_GETEVRREGS
-#define PTRACE_GETEVRREGS	20
-#define PTRACE_SETEVRREGS	21
-#endif
-
-struct gdb_evrregset_t
-{
-  unsigned long evr[32];
-  unsigned long long acc;
-  unsigned long spefscr;
-};
-
-static void
-ppc_fill_evrregset (struct regcache *regcache, void *buf)
-{
-  int i, ev0;
-  struct gdb_evrregset_t *regset = buf;
-
-  if (!(ppc_hwcap & PPC_FEATURE_HAS_SPE))
-    return;
-
-  ev0 = find_regno (regcache->tdesc, "ev0h");
-  for (i = 0; i < 32; i++)
-    collect_register (regcache, ev0 + i, &regset->evr[i]);
-
-  collect_register_by_name (regcache, "acc", &regset->acc);
-  collect_register_by_name (regcache, "spefscr", &regset->spefscr);
-}
-
-static void
-ppc_store_evrregset (struct regcache *regcache, const void *buf)
-{
-  int i, ev0;
-  const struct gdb_evrregset_t *regset = buf;
-
-  if (!(ppc_hwcap & PPC_FEATURE_HAS_SPE))
-    return;
-
-  ev0 = find_regno (regcache->tdesc, "ev0h");
-  for (i = 0; i < 32; i++)
-    supply_register (regcache, ev0 + i, &regset->evr[i]);
-
-  supply_register_by_name (regcache, "acc", &regset->acc);
-  supply_register_by_name (regcache, "spefscr", &regset->spefscr);
-}
-
-static struct regset_info ppc_regsets[] = {
-  /* List the extra register sets before GENERAL_REGS.  That way we will
-     fetch them every time, but still fall back to PTRACE_PEEKUSER for the
-     general registers.  Some kernels support these, but not the newer
-     PPC_PTRACE_GETREGS.  */
-  { PTRACE_GETVSXREGS, PTRACE_SETVSXREGS, 0, SIZEOF_VSXREGS, EXTENDED_REGS,
-  ppc_fill_vsxregset, ppc_store_vsxregset },
-  { PTRACE_GETVRREGS, PTRACE_SETVRREGS, 0, SIZEOF_VRREGS, EXTENDED_REGS,
-    ppc_fill_vrregset, ppc_store_vrregset },
-  { PTRACE_GETEVRREGS, PTRACE_SETEVRREGS, 0, 32 * 4 + 8 + 4, EXTENDED_REGS,
-    ppc_fill_evrregset, ppc_store_evrregset },
-  { 0, 0, 0, 0, GENERAL_REGS, ppc_fill_gregset, NULL },
-  { 0, 0, 0, -1, -1, NULL, NULL }
-};
-
-static struct usrregs_info ppc_usrregs_info =
-  {
-    ppc_num_regs,
-    ppc_regmap,
-  };
-
-static struct regsets_info ppc_regsets_info =
-  {
-    ppc_regsets, /* regsets */
-    0, /* num_regsets */
-    NULL, /* disabled_regsets */
-  };
-
-static struct regs_info regs_info =
-  {
-    NULL, /* regset_bitmap */
-    &ppc_usrregs_info,
-    &ppc_regsets_info
-  };
-
-static const struct regs_info *
-ppc_regs_info (void)
-{
-  return &regs_info;
-}
-
 struct linux_target_ops the_low_target = {
   ppc_arch_setup,
   ppc_regs_info,
@@ -715,8 +701,8 @@ struct linux_target_ops the_low_target = {
   NULL, /* fetch_register */
   ppc_get_pc,
   ppc_set_pc,
-  (const unsigned char *) &ppc_breakpoint,
-  ppc_breakpoint_len,
+  NULL, /* breakpoint_kind_from_pc */
+  ppc_sw_breakpoint_from_kind,
   NULL,
   0,
   ppc_breakpoint_at,
@@ -727,6 +713,20 @@ struct linux_target_ops the_low_target = {
   NULL,
   ppc_collect_ptrace_register,
   ppc_supply_ptrace_register,
+  NULL, /* siginfo_fixup */
+  NULL, /* new_process */
+  NULL, /* new_thread */
+  NULL, /* new_fork */
+  NULL, /* prepare_to_resume */
+  NULL, /* process_qsupported */
+  NULL, /* supports_tracepoints */
+  NULL, /* get_thread_area */
+  NULL, /* install_fast_tracepoint_jump_pad */
+  NULL, /* emit_ops */
+  NULL, /* get_min_fast_tracepoint_insn_len */
+  NULL, /* supports_range_stepping */
+  NULL, /* breakpoint_kind_from_current_state */
+  ppc_supports_hardware_single_step,
 };
 
 void

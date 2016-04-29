@@ -77,6 +77,7 @@ cpu-dlx.c
 cpu-epiphany.c
 cpu-fr30.c
 cpu-frv.c
+cpu-ft32.c
 cpu-h8300.c
 cpu-h8500.c
 cpu-hppa.c
@@ -85,6 +86,7 @@ cpu-i386.c
 cpu-i860.c
 cpu-i960.c
 cpu-ia64.c
+cpu-iamcu.c
 cpu-ip2k.c
 cpu-iq2000.c
 cpu-k1om.c
@@ -155,7 +157,7 @@ elf-bfd.h
 elf-eh-frame.c
 elf-hppa.h
 elf-ifunc.c
-elf-linux-psinfo.h
+elf-linux-core.h
 elf-m10200.c
 elf-m10300.c
 elf-nacl.c
@@ -177,6 +179,7 @@ elf32-dlx.c
 elf32-epiphany.c
 elf32-fr30.c
 elf32-frv.c
+elf32-ft32.c
 elf32-gen.c
 elf32-h8300.c
 elf32-hppa.c
@@ -295,6 +298,8 @@ m68klinux.c
 m68knetbsd.c
 m88kmach3.c
 m88kopenbsd.c
+mach-o-aarch64.c
+mach-o-arm.c
 mach-o-i386.c
 mach-o-x86-64.c
 mach-o.c

@@ -1,5 +1,5 @@
 /* vms.c -- BFD back-end for EVAX (openVMS/Alpha) files.
-   Copyright (C) 1996-2015 Free Software Foundation, Inc.
+   Copyright (C) 1996-2016 Free Software Foundation, Inc.
 
    Initial version written by Klaus Kaempf (kkaempf@rmi.de)
    Major rewrite by Adacore.
@@ -829,7 +829,7 @@ vms_get_remaining_object_record (bfd *abfd, unsigned int read_so_far)
   /* PR 17512: file: 025-1974-0.004.  */
   else if (to_read <= read_so_far)
     return 0;
-  
+
   /* Read the remaining record.  */
   to_read -= read_so_far;
 
@@ -859,9 +859,12 @@ _bfd_vms_slurp_ehdr (bfd *abfd)
 {
   unsigned char *ptr;
   unsigned char *vms_rec;
+  unsigned char *end;
   int subtype;
 
   vms_rec = PRIV (recrd.rec);
+  /* PR 17512: file: 62736583.  */
+  end = PRIV (recrd.buf) + PRIV (recrd.buf_size);
 
   vms_debug2 ((2, "HDR/EMH\n"));
 
@@ -873,28 +876,42 @@ _bfd_vms_slurp_ehdr (bfd *abfd)
     {
     case EMH__C_MHD:
       /* Module header.  */
+      if (vms_rec + 21 >= end)
+	goto fail;
       PRIV (hdr_data).hdr_b_strlvl = vms_rec[6];
       PRIV (hdr_data).hdr_l_arch1  = bfd_getl32 (vms_rec + 8);
       PRIV (hdr_data).hdr_l_arch2  = bfd_getl32 (vms_rec + 12);
       PRIV (hdr_data).hdr_l_recsiz = bfd_getl32 (vms_rec + 16);
+      if ((vms_rec + 20 + vms_rec[20] + 1) >= end)
+	goto fail;
       PRIV (hdr_data).hdr_t_name   = _bfd_vms_save_counted_string (vms_rec + 20);
       ptr = vms_rec + 20 + vms_rec[20] + 1;
+      if ((ptr + *ptr + 1) >= end)
+	goto fail;
       PRIV (hdr_data).hdr_t_version =_bfd_vms_save_counted_string (ptr);
       ptr += *ptr + 1;
+      if (ptr + 17 >= end)
+	goto fail;
       PRIV (hdr_data).hdr_t_date = _bfd_vms_save_sized_string (ptr, 17);
       break;
 
     case EMH__C_LNM:
+      if (vms_rec + PRIV (recrd.rec_size - 6) > end)
+	goto fail;
       PRIV (hdr_data).hdr_c_lnm =
         _bfd_vms_save_sized_string (vms_rec, PRIV (recrd.rec_size - 6));
       break;
 
     case EMH__C_SRC:
+      if (vms_rec + PRIV (recrd.rec_size - 6) > end)
+	goto fail;
       PRIV (hdr_data).hdr_c_src =
         _bfd_vms_save_sized_string (vms_rec, PRIV (recrd.rec_size - 6));
       break;
 
     case EMH__C_TTL:
+      if (vms_rec + PRIV (recrd.rec_size - 6) > end)
+	goto fail;
       PRIV (hdr_data).hdr_c_ttl =
         _bfd_vms_save_sized_string (vms_rec, PRIV (recrd.rec_size - 6));
       break;
@@ -905,6 +922,7 @@ _bfd_vms_slurp_ehdr (bfd *abfd)
       break;
 
     default:
+    fail:
       bfd_set_error (bfd_error_wrong_format);
       return FALSE;
     }
@@ -8579,7 +8597,7 @@ alpha_vms_bfd_final_link (bfd *abfd, struct bfd_link_info *info)
   asection *dst;
   asection *dmt;
 
-  if (info->relocatable)
+  if (bfd_link_relocatable (info))
     {
       /* FIXME: we do not yet support relocatable link.  It is not obvious
          how to do it for debug infos.  */
@@ -8995,13 +9013,13 @@ vms_new_section_hook (bfd * abfd, asection *section)
 {
   bfd_size_type amt;
 
-  vms_debug2 ((1, "vms_new_section_hook (%p, [%d]%s)\n",
+  vms_debug2 ((1, "vms_new_section_hook (%p, [%u]%s)\n",
                abfd, section->index, section->name));
 
   if (! bfd_set_section_alignment (abfd, section, 0))
     return FALSE;
 
-  vms_debug2 ((7, "%d: %s\n", section->index, section->name));
+  vms_debug2 ((7, "%u: %s\n", section->index, section->name));
 
   amt = sizeof (struct vms_section_data_struct);
   section->used_by_bfd = bfd_zalloc (abfd, amt);
