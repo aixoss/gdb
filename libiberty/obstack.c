@@ -138,8 +138,8 @@ struct obstack *_obstack;
    To recover from an out of memory error,
    free up some memory, then call this again.  */
 
-int
-_obstack_begin (struct obstack *h, int size, int alignment,
+long
+_obstack_begin (struct obstack *h, long size, long alignment,
                 POINTER (*chunkfun) (long), void (*freefun) (void *))
 {
   register struct _obstack_chunk *chunk; /* points to new chunk */
@@ -182,8 +182,8 @@ _obstack_begin (struct obstack *h, int size, int alignment,
   return 1;
 }
 
-int
-_obstack_begin_1 (struct obstack *h, int size, int alignment,
+long
+_obstack_begin_1 (struct obstack *h, long size, long alignment,
                   POINTER (*chunkfun) (POINTER, long),
                   void (*freefun) (POINTER, POINTER), POINTER arg)
 {
@@ -235,7 +235,7 @@ _obstack_begin_1 (struct obstack *h, int size, int alignment,
    to the beginning of the new one.  */
 
 void
-_obstack_newchunk (struct obstack *h, int length)
+_obstack_newchunk (struct obstack *h, long length)
 {
   register struct _obstack_chunk *old_chunk = h->chunk;
   register struct _obstack_chunk *new_chunk;
@@ -388,11 +388,11 @@ obstack_free (struct obstack *h, POINTER obj)
     abort ();
 }
 
-int
+long
 _obstack_memory_used (struct obstack *h)
 {
   register struct _obstack_chunk* lp;
-  register int nbytes = 0;
+  register long nbytes = 0;
 
   for (lp = h->chunk; lp != 0; lp = lp->prev)
     {
