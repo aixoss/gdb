@@ -18,3 +18,7 @@
 /* Minimum possible text address in AIX.  */
 #define AIX_TEXT_SEGMENT_BASE 0x10000000
 
+/* For sighandler */
+#define SIG_FRAME_PC_OFFSET 96
+#define SIG_FRAME_LR_OFFSET 108
+#define SIG_FRAME_FP_OFFSET 284

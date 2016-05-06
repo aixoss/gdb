@@ -62,6 +62,7 @@
 #include "trad-frame.h"
 #include "frame-unwind.h"
 #include "frame-base.h"
+#include "rs6000-tdep.h"
 
 #include "features/rs6000/powerpc-32.c"
 #include "features/rs6000/powerpc-altivec32.c"
@@ -3145,7 +3146,7 @@ rs6000_frame_cache (struct frame_info *this_frame, void **this_cache)
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
   struct rs6000_framedata fdata;
   int wordsize = tdep->wordsize;
-  CORE_ADDR func, pc;
+  CORE_ADDR func, pc, save_cache_base;
 
   if ((*this_cache) != NULL)
     return (*this_cache);
@@ -3166,6 +3167,7 @@ rs6000_frame_cache (struct frame_info *this_frame, void **this_cache)
      base address of this frame.  */
   cache->base = get_frame_register_unsigned
 		(this_frame, gdbarch_sp_regnum (gdbarch));
+  save_cache_base = cache->base;
 
   /* If the function appears to be frameless, check a couple of likely
      indicators that we have simply failed to find the frame setup.
@@ -3211,6 +3213,20 @@ rs6000_frame_cache (struct frame_info *this_frame, void **this_cache)
         cache->base = (CORE_ADDR) backchain;
     }
 
+  /* If frame is is a AIX signal handler frame, we need to read the base 
+     address from sigconext offset. Backchain at an offset 0 will be 0, so backchain
+     will be at an offset SIG_FRAME_FP_OFFSET(284)+8 for 32-bit applications. */
+  if (!cache->base && !fdata.frameless)
+  {
+      CORE_ADDR backchain, sig_pc = 0;
+      if (safe_read_memory_integer (save_cache_base+8, wordsize, byte_order, &sig_pc) && 
+          (sig_pc && (sig_pc < AIX_TEXT_SEGMENT_BASE)))
+          if (safe_read_memory_integer (save_cache_base+SIG_FRAME_FP_OFFSET+8, 
+                                        wordsize, byte_order, &backchain))
+             cache->base = (CORE_ADDR) backchain;
+  }
+  
+  
   trad_frame_set_value (cache->saved_regs,
 			gdbarch_sp_regnum (gdbarch), cache->base);
 
