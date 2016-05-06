@@ -337,10 +337,13 @@ CODE_FRAGMENT
 #include "libecoff.h"
 #undef obj_symbols
 #include "elf-bfd.h"
+#include <aix-demangle.h>
 
 #ifndef EXIT_FAILURE
 #define EXIT_FAILURE 1
 #endif
+
+is_xlcpp_class = 0;
 
 
 /* provide storage for subsystem, stack and heap data which may have been
@@ -1847,10 +1850,12 @@ DESCRIPTION
 char *
 bfd_demangle (bfd *abfd, const char *name, int options)
 {
+  char *rest;
   char *res, *alloc;
   const char *pre, *suf;
   size_t pre_len;
   bfd_boolean skip_lead;
+  Name *nm;
 
   skip_lead = (abfd != NULL
 	       && *name != '\0'
@@ -1880,7 +1885,14 @@ bfd_demangle (bfd *abfd, const char *name, int options)
       name = alloc;
     }
 
-  res = cplus_demangle (name, options);
+    if (!is_xlcpp_class) {
+      res = cplus_demangle (name, options);
+    }
+    else if( is_xlcpp_class) {
+      nm = demangle(name, &rest, RegularNames | ClassNames|SpecialNames|ParameterText|QualifierText); 
+      res = text(nm);
+    }
+
 
   if (alloc != NULL)
     free (alloc);

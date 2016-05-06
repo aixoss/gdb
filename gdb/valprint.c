@@ -442,7 +442,7 @@ generic_val_print (struct type *type, const gdb_byte *valaddr,
 	    }
 
 	  if (options->symbol_print)
-	    print_address_demangle (options, gdbarch, addr, stream, demangle);
+	    print_address_demangle (options, gdbarch, addr, stream, gdb1_demangle);
 	  else if (options->addressprint)
 	    fputs_filtered (paddress (gdbarch, addr), stream);
 	}
@@ -569,7 +569,7 @@ generic_val_print (struct type *type, const gdb_byte *valaddr,
       type_print (type, "", stream, -1);
       fprintf_filtered (stream, "} ");
       /* Try to print what function it points to, and its address.  */
-      print_address_demangle (options, gdbarch, address, stream, demangle);
+      print_address_demangle (options, gdbarch, address, stream, gdb1_demangle);
       break;
 
     case TYPE_CODE_BOOL:
@@ -1583,7 +1583,7 @@ print_function_pointer_address (const struct value_print_options *options,
       fputs_filtered (paddress (gdbarch, address), stream);
       fputs_filtered (": ", stream);
     }
-  print_address_demangle (options, gdbarch, func_addr, stream, demangle);
+  print_address_demangle (options, gdbarch, func_addr, stream, gdb1_demangle);
 }
 
 

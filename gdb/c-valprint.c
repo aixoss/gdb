@@ -284,7 +284,7 @@ c_val_print (struct type *type, const gdb_byte *valaddr,
 
 	  if (options->symbol_print)
 	    want_space = print_address_demangle (options, gdbarch, addr,
-						 stream, demangle);
+						 stream, gdb1_demangle);
 	  else if (options->addressprint)
 	    {
 	      fputs_filtered (paddress (gdbarch, addr), stream);
