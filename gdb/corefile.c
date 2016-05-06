@@ -293,17 +293,17 @@ read_code (CORE_ADDR memaddr, gdb_byte *myaddr, ssize_t len)
    RETURN_VALUE.  Return 0 if MEMADDR couldn't be read and non-zero
    if successful.  */
 
-int
+CORE_ADDR
 safe_read_memory_integer (CORE_ADDR memaddr, int len, 
 			  enum bfd_endian byte_order,
-			  LONGEST *return_value)
+			  CORE_ADDR *return_value)
 {
   gdb_byte buf[sizeof (LONGEST)];
 
   if (target_read_memory (memaddr, buf, len))
     return 0;
 
-  *return_value = extract_signed_integer (buf, len, byte_order);
+  *return_value = extract_unsigned_integer (buf, len, byte_order);
   return 1;
 }
 
