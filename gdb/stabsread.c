@@ -2464,6 +2464,8 @@ read_xlC_member_functions (struct field_info *fip, char **pp, struct type *type,
             (struct next_fnfield *) xmalloc (sizeof (struct next_fnfield));
          make_cleanup (xfree, new_sublist);
          memset (new_sublist, 0, sizeof (struct next_fnfield));
+         if (p < *pp)
+           return 0;
          new_sublist->fn_field.physname =  savestring (*pp, p - *pp);
 	  
 		 do
