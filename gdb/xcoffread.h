@@ -23,4 +23,6 @@ extern CORE_ADDR xcoff_get_toc_offset (struct objfile *);
 
 extern int xcoff_get_n_import_files (bfd *abfd);
 
+extern int is64;
+
 #endif /* xcoffread.h */
