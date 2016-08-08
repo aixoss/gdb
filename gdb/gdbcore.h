@@ -70,9 +70,9 @@ extern void read_code (CORE_ADDR memaddr, gdb_byte *myaddr, ssize_t len);
 
 extern LONGEST read_memory_integer (CORE_ADDR memaddr,
 				    int len, enum bfd_endian byte_order);
-extern int safe_read_memory_integer (CORE_ADDR memaddr, int len,
+extern CORE_ADDR safe_read_memory_integer (CORE_ADDR memaddr, int len,
 				     enum bfd_endian byte_order,
-				     LONGEST *return_value);
+				     CORE_ADDR *return_value);
 
 /* Read an unsigned integer from debugged memory, given address and
    number of bytes.  */
