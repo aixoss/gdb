@@ -181,6 +181,26 @@ typedef void (record_line_ftype) (struct subfile *subfile, int line,
 
 #define next_symbol_text(objfile) (*next_symbol_text_func)(objfile)
 
+/* Vector of all the types which were defined in the pst of a file
+   which had the type declarations. This is useful when the debugee
+   is compiled with the xlc -qfuncsect or gcc --function-sections
+   options. These linker options split every function in a file into
+   different PSTs. SO type declarations happen in one PST while
+   references to it happen in another pst. */
+
+EXTERN struct type **all_type_vector;
+
+/* This is set when ever we need to save contents of type_vector
+   in all_type_vector.  */
+
+EXTERN int save_type_vector;
+
+EXTERN int all_type_index[50000];
+
+EXTERN int all_type_count;
+
+
+
 /* Function to invoke get the next symbol.  Return the symbol name.  */
 
 EXTERN char *(*next_symbol_text_func) (struct objfile *);

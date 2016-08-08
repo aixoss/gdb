@@ -54,6 +54,10 @@
 extern void _initialize_stabsread (void);
 int is_xlC_class;
 
+/* Check if all the types of the particluar pst must be saved. */
+int check_all_types;
+
+
 /* The routines that read and process a complete stabs for a C struct or 
    C++ class pass lists of data member fields and lists of member function
    fields in an instance of a field_info structure, as defined below.
@@ -302,6 +306,11 @@ dbx_lookup_type (int typenums[2], struct objfile *objfile)
 	      type_vector_length = INITIAL_TYPE_VECTOR_LENGTH;
 	      type_vector = (struct type **)
 		xmalloc (type_vector_length * sizeof (struct type *));
+              if (save_type_vector) {
+                all_type_vector = (struct type **)
+                  xmalloc (type_vector_length * sizeof (struct type *));
+              }
+
 	    }
 	  while (index >= type_vector_length)
 	    {
@@ -312,8 +321,27 @@ dbx_lookup_type (int typenums[2], struct objfile *objfile)
 		      (type_vector_length * sizeof (struct type *)));
 	  memset (&type_vector[old_len], 0,
 		  (type_vector_length - old_len) * sizeof (struct type *));
-	}
-      return (&type_vector[index]);
+
+        if (save_type_vector)
+        {
+          all_type_vector = (struct type **)
+                xrealloc ((char *) all_type_vector,
+                          (type_vector_length * sizeof (struct type *)));
+          memset (&all_type_vector[old_len], 0,
+                  (type_vector_length - old_len) * sizeof (struct type *));
+         }
+      }
+
+     /* If the type has been declared in another pst which was
+       stored in all_type_vector, then assign the type to that
+       stored value. The check_all_types variable is set by
+       the cleanup_undefined_types_noname().  */
+
+     if (check_all_types && all_type_vector[index])
+     {
+        type_vector[index] = all_type_vector[index];
+     }
+     return (&type_vector[index]);
     }
   else
     {
@@ -2078,6 +2106,25 @@ again:
 	*dbx_lookup_type (typenums, objfile) = type;
       break;
 
+    case 'm':
+      /* type = dbx_alloc_type (typenums, objfile);
+      all_type_vector[typenums[1]] = type; */
+
+      all_type_index[all_type_count] = typenums[1];
+      all_type_count += 1;
+      break;
+
+    case 'M':
+     all_type_index[all_type_count] = typenums[1];
+     all_type_count += 1;
+     break;
+
+    case 'V':
+      type = read_type (pp, objfile);
+      type = make_cv_type (TYPE_CONST (type), 1, type,
+                           dbx_lookup_type (typenums, objfile));
+      break;
+
     default:
       --*pp;			/* Go back to the symbol in error.  */
       /* Particularly important if it was \0!  */
@@ -2086,13 +2133,20 @@ again:
 
   if (type == 0)
     {
-      warning (_("GDB internal error, type is NULL in stabsread.c."));
+      /* warning (_("GDB internal error, type is NULL in stabsread.c.")); */
       return error_type (pp, objfile);
     }
 
   /* Size specified in a type attribute overrides any other size.  */
   if (type_size != -1)
     TYPE_LENGTH (type) = (type_size + TARGET_CHAR_BIT - 1) / TARGET_CHAR_BIT;
+
+  /* Save all the types into all_type_vector if the current pst
+     has C_DECL variable declarations and is a dependent pst to
+     another pst.  */
+
+  if (save_type_vector && (typenums[1] > 0))
+   all_type_vector[typenums[1]] = type_vector[typenums[1]];
 
   return type;
 }
@@ -5262,7 +5316,7 @@ add_undefined_type (struct type *type, int typenums[2])
 static void
 cleanup_undefined_types_noname (struct objfile *objfile)
 {
-  int i;
+  int i, j, is_index = 0;;
 
   for (i = 0; i < noname_undefs_length; i++)
     {
@@ -5270,6 +5324,43 @@ cleanup_undefined_types_noname (struct objfile *objfile)
       struct type **type;
 
       type = dbx_lookup_type (nat.typenums, objfile);
+
+      /* If a type is undefined, it may be because of the use of xlc
+      -qfuncsect or gcc --function-sections option which causes types
+      to be defined in one pst while references to it may happen in
+      another pst.
+
+      So, if we find an undefined type, check it against the
+      all_type_vector and assign it to the previously defined type.  */
+
+      if (nat.type == *type && TYPE_CODE (*type) == TYPE_CODE_UNDEF)
+      {
+       /* if (all_type_vector)
+          check_all_types = 1;
+        type = dbx_lookup_type(nat.typenums, objfile);
+        check_all_types = 0;
+       */
+       
+         if (all_type_vector) { 
+            for (j = 0; j < all_type_count; j++) {
+              if (nat.typenums[1] == all_type_index[j])
+                {
+                    is_index =1 ;
+                    break;               
+                }
+              }
+            if( is_index != 1)
+            {
+               check_all_types = 1;
+               type = dbx_lookup_type(nat.typenums, objfile);
+               check_all_types = 0;
+            }    
+         }
+       }
+
+
+   if (is_index !=1)
+   {
       if (nat.type != *type && TYPE_CODE (*type) != TYPE_CODE_UNDEF)
         {
           /* The instance flags of the undefined type are still unset,
@@ -5280,6 +5371,7 @@ cleanup_undefined_types_noname (struct objfile *objfile)
           replace_type (nat.type, *type);
         }
     }
+  }
 
   noname_undefs_length = 0;
 }

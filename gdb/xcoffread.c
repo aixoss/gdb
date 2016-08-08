@@ -52,6 +52,9 @@
 /* For interface with stabsread.c.  */
 #include "aout/stab_gnu.h"
 
+/*Previously dependent pst.  */
+struct partial_symtab *pst_dependent_prev;
+
 
 /* Key for XCOFF-associated data.  */
 
@@ -1858,6 +1861,14 @@ xcoff_psymtab_to_symtab_1 (struct objfile *objfile, struct partial_symtab *pst)
 
   /* Read in all partial symtabs on which this one is dependent.  */
   for (i = 0; i < pst->number_of_dependencies; i++)
+   {
+    /* If the types defined in the dependent pst have never been
+       saved before, read the pst again.  */
+    if (pst->dependencies[i]->readin)
+    {
+     if (pst->dependencies[i] != pst_dependent_prev) /* && !all_type_vector)*/
+      pst->dependencies[i]->readin = 0;
+    }
     if (!pst->dependencies[i]->readin)
       {
 	/* Inform about additional files that need to be read in.  */
@@ -1871,7 +1882,18 @@ xcoff_psymtab_to_symtab_1 (struct objfile *objfile, struct partial_symtab *pst)
 	    wrap_here ("");	/* Flush output */
 	    gdb_flush (gdb_stdout);
 	  }
-	xcoff_psymtab_to_symtab_1 (objfile, pst->dependencies[i]);
+          /* Save the types defined in the pst as it may be referenced in
+            the other partial symtabs.  */
+
+          save_type_vector = 1;
+          pst_dependent_prev = pst->dependencies[i];  
+	  xcoff_psymtab_to_symtab_1 (objfile, pst->dependencies[i]);
+          
+          /* Reinitialize save_type_vector back to 0 to avoid saving of
+            unnecessary types declared in following psymtabs.  */
+
+          save_type_vector = 0;
+        }
       }
 
   if (((struct symloc *) pst->read_symtab_private)->numsyms != 0)
@@ -2227,6 +2249,9 @@ scan_xcoff_symtab (struct objfile *objfile)
   /* Current partial symtab */
   struct partial_symtab *pst;
 
+  /* Pst of any file which contains type declarations.  */
+  struct partial_symtab *pst_file;
+
   /* List of current psymtab's include files.  */
   const char **psymtab_include_list;
   int includes_allocated;
@@ -2248,6 +2273,7 @@ scan_xcoff_symtab (struct objfile *objfile)
   int textlow_not_set = 1;
 
   pst = (struct partial_symtab *) 0;
+  pst_file = (struct partial_symtab *) 0;
 
   includes_allocated = 30;
   includes_used = 0;
@@ -2347,6 +2373,16 @@ scan_xcoff_symtab (struct objfile *objfile)
 			       symnum_before,
 			       objfile->global_psymbols.next,
 			       objfile->static_psymbols.next);
+
+                          /* Mark pst dependent unless it is compiler generated. */
+                          if (strncmp (namestring, "@FIX", 4) != 0)
+                           {
+                            if (!strcmp(pst->filename, pst_file->filename))
+                             {
+                              dependency_list[dependencies_used] = pst_file;
+                              dependencies_used ++;
+                             }
+                           }
 			  }
 		      }
 		    /* Activate the misc_func_recorded mechanism for
@@ -2532,6 +2568,11 @@ scan_xcoff_symtab (struct objfile *objfile)
 				       objfile->global_psymbols.next,
 				       objfile->static_psymbols.next);
 	    last_csect_name = NULL;
+
+           /* Initialize pst_file to NULL as we have encountered a new
+              file declaration.  */
+
+           pst_file = (struct partial_symtab *) 0;
 	  }
 	  break;
 
@@ -2652,6 +2693,19 @@ scan_xcoff_symtab (struct objfile *objfile)
 	      }
 	    continue;
 	  }
+        case C_DECL:
+         /* We have encountered a new type declaration. The types
+            defined in this pst may be referenced by other psymtabs
+            in the same file itself. (This occurs when we use xlc
+            -qfuncsect or gcc --ffunction-section options.
+
+            So, if this is not marked as pst_file before or if pst_file
+            has not been defined for this particular file, then mark
+            this pst as pst_file.  */
+
+          if (!pst_file)
+           pst_file = pst;
+
 	case C_FUN:
 	  /* The value of the C_FUN is not the address of the function (it
 	     appears to be the address before linking), but as long as it
@@ -2660,7 +2714,6 @@ scan_xcoff_symtab (struct objfile *objfile)
 
 	case C_GSYM:
 	case C_ECOML:
-	case C_DECL:
 	case C_STSYM:
 	  {
 	    char *p;
