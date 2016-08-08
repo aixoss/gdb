@@ -6191,7 +6191,7 @@ print_breakpoint_location (struct breakpoint *b,
       struct cleanup *stb_chain = make_cleanup_ui_file_delete (stb);
 
       print_address_symbolic (loc->gdbarch, loc->address, stb,
-			      demangle, "");
+			      gdb1_demangle, "");
       ui_out_field_stream (uiout, "at", stb);
 
       do_cleanups (stb_chain);

@@ -2548,7 +2548,7 @@ fprintf_symbol_filtered (struct ui_file *stream, const char *name,
   if (name != NULL)
     {
       /* If user wants to see raw output, no problem.  */
-      if (!demangle)
+      if (!gdb1_demangle)
 	{
 	  fputs_filtered (name, stream);
 	}

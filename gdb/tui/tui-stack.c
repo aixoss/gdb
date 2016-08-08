@@ -219,7 +219,7 @@ tui_get_function_from_frame (struct frame_info *fi)
   char *p;
 
   print_address_symbolic (get_frame_arch (fi), get_frame_pc (fi),
-			  stream, demangle, "");
+			  stream, gdb1_demangle, "");
   p = tui_file_get_strbuf (stream);
 
   /* Use simple heuristics to isolate the function name.  The symbol

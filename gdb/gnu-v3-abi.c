@@ -652,7 +652,7 @@ gnuv3_print_method_ptr (const gdb_byte *contents,
       struct value_print_options opts;
 
       get_user_print_options (&opts);
-      print_address_demangle (&opts, gdbarch, ptr_value, stream, demangle);
+      print_address_demangle (&opts, gdbarch, ptr_value, stream, gdb1_demangle);
     }
 
   if (adjustment)

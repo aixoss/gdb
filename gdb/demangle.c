@@ -46,7 +46,7 @@
 static void demangle_command (char *, int);
 
 /* See documentation in gdb-demangle.h.  */
-int demangle = 1;
+int gdb1_demangle = 1;
 
 static void
 show_demangle (struct ui_file *file, int from_tty,
@@ -253,7 +253,7 @@ _initialize_demangler (void)
 	current_demangling_style_string = demangling_style_names[i];
     }
 
-  add_setshow_boolean_cmd ("demangle", class_support, &demangle, _("\
+  add_setshow_boolean_cmd ("demangle", class_support, &gdb1_demangle, _("\
 Set demangling of encoded C++/ObjC names when displaying symbols."), _("\
 Show demangling of encoded C++/ObjC names when displaying symbols."), NULL,
 			   NULL,

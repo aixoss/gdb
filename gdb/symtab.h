@@ -257,8 +257,8 @@ extern const char *symbol_demangled_name
    e.g., struct symbol or struct minimal_symbol.  */
 
 #define SYMBOL_PRINT_NAME(symbol)					\
-  (demangle ? SYMBOL_NATURAL_NAME (symbol) : SYMBOL_LINKAGE_NAME (symbol))
-extern int demangle;
+  (gdb1_demangle ? SYMBOL_NATURAL_NAME (symbol) : SYMBOL_LINKAGE_NAME (symbol))
+extern int gdb1_demangle;
 
 /* Macro that returns the name to be used when sorting and searching symbols.
    In  C++ and Java, we search for the demangled form of a name,
@@ -413,7 +413,7 @@ struct minimal_symbol
   (symbol_natural_name (&(symbol)->mginfo))
 #define MSYMBOL_LINKAGE_NAME(symbol)	(symbol)->mginfo.name
 #define MSYMBOL_PRINT_NAME(symbol)					\
-  (demangle ? MSYMBOL_NATURAL_NAME (symbol) : MSYMBOL_LINKAGE_NAME (symbol))
+  (gdb1_demangle ? MSYMBOL_NATURAL_NAME (symbol) : MSYMBOL_LINKAGE_NAME (symbol))
 #define MSYMBOL_DEMANGLED_NAME(symbol) \
   (symbol_demangled_name (&(symbol)->mginfo))
 #define MSYMBOL_SET_LANGUAGE(symbol,language,obstack)	\

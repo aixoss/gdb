@@ -2584,8 +2584,10 @@ read_xlC_member_functions (struct field_info *fip, char **pp, struct type *type,
       (*pp)++;
 	  STABS_CONTINUE (pp, objfile);
       
+      is_xlcpp_class = 1;
 	  char *new_method_name =
       stabs_method_name_from_physname (sublist->fn_field.physname);
+      is_xlcpp_class = 0;
 
       if (new_method_name != NULL
          && strcmp (new_method_name,

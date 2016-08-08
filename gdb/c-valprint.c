@@ -155,7 +155,7 @@ print_unpacked_pointer (struct type *type, struct type *elttype,
 
   if (options->symbol_print)
     want_space = print_address_demangle (options, gdbarch, address, stream,
-					 demangle);
+					 gdb1_demangle);
   else if (options->addressprint)
     {
       fputs_filtered (paddress (gdbarch, address), stream);

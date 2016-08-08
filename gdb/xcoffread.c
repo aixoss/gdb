@@ -2335,10 +2335,12 @@ scan_xcoff_symtab (struct objfile *objfile)
 
 			if (!misc_func_recorded)
 			  {
+                            is_xlcpp_class = 1;
 			    record_minimal_symbol
 			      (last_csect_name, last_csect_val,
 			       mst_text, last_csect_sec, objfile);
 			    misc_func_recorded = 1;
+			    is_xlcpp_class = 0;
 			  }
 
 			if (pst != NULL)
@@ -2399,11 +2401,13 @@ scan_xcoff_symtab (struct objfile *objfile)
 		  case XMC_TD:
 		    /* Data variables are recorded in the minimal symbol
 		       table, except for section symbols.  */
+                    is_xlcpp_class = 1;
 		    if (*namestring != '.')
 		      record_minimal_symbol
 			(namestring, symbol.n_value,
 			 sclass == C_HIDEXT ? mst_file_data : mst_data,
 			 symbol.n_scnum, objfile);
+		     is_xlcpp_class = 0;
 		    break;
 
 		  case XMC_TC0:
@@ -2438,11 +2442,13 @@ scan_xcoff_symtab (struct objfile *objfile)
 		      first_fun_line_offset =
 			main_aux[0].x_sym.x_fcnary.x_fcn.x_lnnoptr;
 
+		    is_xlcpp_class = 1;
 		    record_minimal_symbol
 		      (namestring, symbol.n_value,
 		       sclass == C_HIDEXT ? mst_file_text : mst_text,
 		       symbol.n_scnum, objfile);
 		    misc_func_recorded = 1;
+		    is_xlcpp_class = 0;
 		    break;
 
 		  case XMC_GL:
@@ -2453,10 +2459,12 @@ scan_xcoff_symtab (struct objfile *objfile)
 		       mst_solib_trampoline symbol.  When we lookup mst
 		       symbols, we will choose mst_text over
 		       mst_solib_trampoline.  */
+                    is_xlcpp_class = 1;
 		    record_minimal_symbol
 		      (namestring, symbol.n_value,
 		       mst_solib_trampoline, symbol.n_scnum, objfile);
 		    misc_func_recorded = 1;
+                    is_xlcpp_class = 0;
 		    break;
 
 		  case XMC_DS:
@@ -2474,11 +2482,13 @@ scan_xcoff_symtab (struct objfile *objfile)
 		       still need to record them.  This will
 		       typically be XMC_RW; I suspect XMC_RO and
 		       XMC_BS might be possible too.  */
+                    is_xlcpp_class = 1;
 		    if (*namestring != '.')
 		      record_minimal_symbol
 			(namestring, symbol.n_value,
 			 sclass == C_HIDEXT ? mst_file_data : mst_data,
 			 symbol.n_scnum, objfile);
+                    is_xlcpp_class = 0;
 		    break;
 		  }
 		break;
@@ -2490,11 +2500,13 @@ scan_xcoff_symtab (struct objfile *objfile)
 		  case XMC_BS:
 		    /* Common variables are recorded in the minimal symbol
 		       table, except for section symbols.  */
+                    is_xlcpp_class = 1;
 		    if (*namestring != '.')
 		      record_minimal_symbol
 			(namestring, symbol.n_value,
 			 sclass == C_HIDEXT ? mst_file_bss : mst_bss,
 			 symbol.n_scnum, objfile);
+                    is_xlcpp_class = 0;
 		    break;
 		  }
 		break;
@@ -2520,9 +2532,11 @@ scan_xcoff_symtab (struct objfile *objfile)
 		   it as a function.  This will take care of functions like
 		   strcmp() compiled by xlc.  */
 
+                is_xlcpp_class = 1;
 		record_minimal_symbol (last_csect_name, last_csect_val,
 				       mst_text, last_csect_sec, objfile);
 		misc_func_recorded = 1;
+                is_xlcpp_class = 0;
 	      }
 
 	    if (pst)
@@ -2728,11 +2742,13 @@ scan_xcoff_symtab (struct objfile *objfile)
 		  namestring = gdbarch_static_transform_name
 				 (gdbarch, namestring);
 
+                is_xlcpp_class = 1;
 		add_psymbol_to_list (namestring, p - namestring, 1,
 				     VAR_DOMAIN, LOC_STATIC,
 				     &objfile->static_psymbols,
 				     symbol.n_value,
 				     psymtab_language, objfile);
+                is_xlcpp_class = 0;
 		continue;
 
 	      case 'G':
@@ -2740,11 +2756,13 @@ scan_xcoff_symtab (struct objfile *objfile)
 					    SECT_OFF_DATA (objfile));
 		/* The addresses in these entries are reported to be
 		   wrong.  See the code that reads 'G's for symtabs.  */
+                is_xlcpp_class = 1;
 		add_psymbol_to_list (namestring, p - namestring, 1,
 				     VAR_DOMAIN, LOC_STATIC,
 				     &objfile->global_psymbols,
 				     symbol.n_value,
 				     psymtab_language, objfile);
+                is_xlcpp_class = 0;
 		continue;
 
 	      case 'T':
@@ -2758,17 +2776,21 @@ scan_xcoff_symtab (struct objfile *objfile)
 		    || (p == namestring + 1
 			&& namestring[0] != ' '))
 		  {
+                    is_xlcpp_class = 1;
 		    add_psymbol_to_list (namestring, p - namestring, 1,
 					 STRUCT_DOMAIN, LOC_TYPEDEF,
 					 &objfile->static_psymbols,
 					 0, psymtab_language, objfile);
+                    is_xlcpp_class = 0;
 		    if (p[2] == 't')
 		      {
+                        is_xlcpp_class = 1;
 			/* Also a typedef with the same name.  */
 			add_psymbol_to_list (namestring, p - namestring, 1,
 					     VAR_DOMAIN, LOC_TYPEDEF,
 					     &objfile->static_psymbols,
 					     0, psymtab_language, objfile);
+                        is_xlcpp_class = 0;
 			p += 1;
 		      }
 		  }
@@ -2839,10 +2861,12 @@ scan_xcoff_symtab (struct objfile *objfile)
 			  ;
 			/* Note that the value doesn't matter for
 			   enum constants in psymtabs, just in symtabs.  */
+                        is_xlcpp_class = 1;
 			add_psymbol_to_list (p, q - p, 1,
 					     VAR_DOMAIN, LOC_CONST,
 					     &objfile->static_psymbols,
 					     0, psymtab_language, objfile);
+                        is_xlcpp_class = 0;
 			/* Point past the name.  */
 			p = q;
 			/* Skip over the value.  */
@@ -2857,10 +2881,12 @@ scan_xcoff_symtab (struct objfile *objfile)
 
 	      case 'c':
 		/* Constant, e.g. from "const" in Pascal.  */
+                is_xlcpp_class = 1;
 		add_psymbol_to_list (namestring, p - namestring, 1,
 				     VAR_DOMAIN, LOC_CONST,
 				     &objfile->static_psymbols,
 				     0, psymtab_language, objfile);
+                is_xlcpp_class = 0;
 		continue;
 
 	      case 'f':
@@ -2876,11 +2902,13 @@ scan_xcoff_symtab (struct objfile *objfile)
 		  }
 		symbol.n_value += ANOFFSET (objfile->section_offsets,
 					    SECT_OFF_TEXT (objfile));
+                is_xlcpp_class = 1;
 		add_psymbol_to_list (namestring, p - namestring, 1,
 				     VAR_DOMAIN, LOC_BLOCK,
 				     &objfile->static_psymbols,
 				     symbol.n_value,
 				     psymtab_language, objfile);
+                is_xlcpp_class = 0;
 		continue;
 
 		/* Global functions were ignored here, but now they
@@ -2907,11 +2935,13 @@ scan_xcoff_symtab (struct objfile *objfile)
 
 		symbol.n_value += ANOFFSET (objfile->section_offsets,
 					    SECT_OFF_TEXT (objfile));
+                is_xlcpp_class = 1;
 		add_psymbol_to_list (namestring, p - namestring, 1,
 				     VAR_DOMAIN, LOC_BLOCK,
 				     &objfile->global_psymbols,
 				     symbol.n_value,
 				     psymtab_language, objfile);
+                 is_xlcpp_class = 0;
 		continue;
 
 		/* Two things show up here (hopefully); static symbols of

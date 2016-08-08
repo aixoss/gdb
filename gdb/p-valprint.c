@@ -158,7 +158,7 @@ pascal_val_print (struct type *type, const gdb_byte *valaddr,
 	  /* Extract the address, assume that it is unsigned.  */
 	  addr = extract_unsigned_integer (valaddr + embedded_offset,
 					   TYPE_LENGTH (type), byte_order);
-	  print_address_demangle (options, gdbarch, addr, stream, demangle);
+	  print_address_demangle (options, gdbarch, addr, stream, gdb1_demangle);
 	  break;
 	}
       check_typedef (TYPE_TARGET_TYPE (type));
@@ -170,7 +170,7 @@ pascal_val_print (struct type *type, const gdb_byte *valaddr,
       if (TYPE_CODE (elttype) == TYPE_CODE_FUNC)
 	{
 	  /* Try to print what function it points to.  */
-	  print_address_demangle (options, gdbarch, addr, stream, demangle);
+	  print_address_demangle (options, gdbarch, addr, stream, gdb1_demangle);
 	  return;
 	}
 
@@ -314,7 +314,7 @@ pascal_val_print (struct type *type, const gdb_byte *valaddr,
 				       TYPE_LENGTH (TYPE_FIELD_TYPE (type,
 								     VTBL_FNADDR_OFFSET)),
 				       byte_order),
-	     stream, demangle);
+	     stream, gdb1_demangle);
 	}
       else
 	{
