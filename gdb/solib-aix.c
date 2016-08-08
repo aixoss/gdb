@@ -641,16 +641,27 @@ solib_aix_bfd_open (char *pathname)
 
      FIXME: This is a little hacky.  Perhaps we should provide access
      to the solib's lm_info here?  */
-  const int path_len = strlen (pathname);
+  int path_len = strlen (pathname);
   char *sep;
   char *filename;
   int filename_len;
-  char *member_name;
+  char *member_name, *sys_path;
   bfd *archive_bfd, *object_bfd;
   struct cleanup *cleanup;
 
-  if (pathname[path_len - 1] != ')')
+  if (pathname[path_len - 1] != ')') /* .so case */
     return solib_bfd_open (pathname);
+
+  /* If gdb_sysroot is set via set sysroot command, then we need to prefix
+     gdb_sysroot to shared library path  */
+  /* .a case */
+  if (gdb_sysroot != NULL && *gdb_sysroot != 0) {
+      sys_path = alloca (sizeof(gdb_sysroot)+strlen(pathname)); 
+      memset (sys_path, 0, sizeof(sys_path));
+      strcpy(sys_path, gdb_sysroot);
+      pathname = strcat (sys_path, pathname);
+  }
+  path_len = strlen (pathname);
 
   /* Search for the associated parens.  */
   sep = strrchr (pathname, '(');
