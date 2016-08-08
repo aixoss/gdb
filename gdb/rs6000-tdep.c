@@ -3204,6 +3204,9 @@ rs6000_frame_cache (struct frame_info *this_frame, void **this_cache)
   if (fdata.frameless && !fdata.nosavedpc)
    fdata.frameless = 0;
 
+  if (!fdata.frameless && fdata.lr_offset == 0)
+     fdata.lr_offset = tdep->lr_frame_offset;
+
   if (!fdata.frameless)
     {
       /* Frameless really means stackless.  */

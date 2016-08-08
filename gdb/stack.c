@@ -531,6 +531,7 @@ print_frame_args (struct symbol *func, struct frame_info *frame,
   struct ui_file *stb;
   /* True if we should print arguments, false otherwise.  */
   int print_args = strcmp (print_frame_arguments, "none");
+  int null_args = 0;
 
   stb = mem_fileopen ();
   old_chain = make_cleanup_ui_file_delete (stb);
@@ -607,6 +608,12 @@ print_frame_args (struct symbol *func, struct frame_info *frame,
 
 	      nsym = lookup_symbol (SYMBOL_LINKAGE_NAME (sym),
 				    b, VAR_DOMAIN, NULL);
+              /* if (!nsym) continue; */
+              if (!nsym)
+              {
+                  null_args = 1;
+                  goto printnull_args;
+              }
 	      gdb_assert (nsym != NULL);
 	      if (SYMBOL_CLASS (nsym) == LOC_REGISTER
 		  && !SYMBOL_IS_ARGUMENT (nsym))
@@ -687,7 +694,13 @@ print_frame_args (struct symbol *func, struct frame_info *frame,
 	  xfree (entryarg.error);
 
 	  first = 0;
-	}
+          printnull_args:
+            if (null_args == 1) {
+                null_args = 0;
+                ui_out_text (uiout, "NULL");
+                ui_out_wrap_hint (uiout, "    ");
+             }
+         }
     }
 
   /* Don't print nameless args in situations where we don't know
