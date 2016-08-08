@@ -203,6 +203,8 @@ extern void bfd_fprintf_vma (bfd *, void *, bfd_vma);
 
 typedef unsigned int flagword;	/* 32 bits of flags */
 typedef unsigned char bfd_byte;
+
+extern int is_xlcpp_class;
 
 /* File formats.  */
 

@@ -21,7 +21,7 @@
 
 /* Nonzero means that encoded C++/ObjC names should be printed out in their
    C++/ObjC form rather than raw.  */
-extern int demangle;
+extern int gdb1_demangle;
 
 /* Nonzero means that encoded C++/ObjC names should be printed out in their
    C++/ObjC form even in assembler language displays.  If this is set, but
