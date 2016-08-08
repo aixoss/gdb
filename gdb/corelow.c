@@ -620,6 +620,18 @@ core_files_info (struct target_ops *t)
 {
   print_section_info (core_data, core_bfd);
 }
+
+/* Get the new section table created after mmap has added a new section
+   to the core and assign it to core_data. Do this only if core data
+   already exists i.e. gdb is already debugging a core */
+
+void mmap_core (struct target_section_table *coreinfo_data)
+{
+  if (core_data == NULL)
+    error (_("\"%s\": Core File should be loaded"),
+           bfd_errmsg (bfd_get_error ()));
+  core_data = coreinfo_data;
+}
 
 struct spuid_list
 {
