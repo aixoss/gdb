@@ -1630,6 +1630,8 @@ stub_noname_complaint (void)
 static int
 is_dynamic_type_internal (struct type *type, int top_level)
 {
+  if (type == NULL)
+     return 0;
   type = check_typedef (type);
 
   /* We only want to recognize references at the outermost level.  */
