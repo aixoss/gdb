@@ -29,8 +29,8 @@ To build the binaries
 
 NOTE: For using aix demangling api we need to do couple of things before the compilation.
 
-1. Copy the /usr/include/demangle.h file to gdb build path. something like to gdb-7.9.1/include.
-   For example "cp /usr/include/demangle.h gdb-7.9.1/include"
+1. Copy the /usr/include/demangle.h file to gdb build path as a aix-demangle.h. something like to gdb-7.9.1/include.
+   For example "cp /usr/include/demangle.h gdb-7.9.1/include/aix-demangle.h"
 2. Have the /usr/lib/libdemangle.a library for using AIX demangle API.
    This library is part of AIX xlC compiler.
 
