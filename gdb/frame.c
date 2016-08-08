@@ -42,6 +42,10 @@
 #include "tracepoint.h"
 #include "hashtab.h"
 #include "valprint.h"
+#include "rs6000-tdep.h"
+#include "xcoffread.h"
+
+CORE_ADDR aix_sig_millicode;
 
 static struct frame_info *get_prev_frame_raw (struct frame_info *this_frame);
 static const char *frame_stop_reason_symbol_string (enum unwind_stop_reason reason);
@@ -717,7 +721,16 @@ frame_id_inner (struct gdbarch *gdbarch, struct frame_id l, struct frame_id r)
        comment in "frame.h", there is some fuzz here.  Frameless
        functions are not strictly inner than (same .stack but
        different .code and/or .special address).  */
-    inner = gdbarch_inner_than (gdbarch, l.stack_addr, r.stack_addr);
+
+     /* For xlc generated address and signal handler case, their can be cases where
+        stack address of l frame is less than r frame. 
+        We may need to skip those cases for checking inner than. */ 
+       if (aix_sig_millicode && (aix_sig_millicode < AIX_TEXT_SEGMENT_BASE)) {
+           inner = 0;
+           aix_sig_millicode = 0;
+       }
+       else
+           inner = gdbarch_inner_than (gdbarch, l.stack_addr, r.stack_addr);
   if (frame_debug)
     {
       fprintf_unfiltered (gdb_stdlog, "{ frame_id_inner (l=");
@@ -1182,9 +1195,28 @@ frame_unwind_register_unsigned (struct frame_info *frame, int regnum)
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
   int size = register_size (gdbarch, regnum);
   gdb_byte buf[MAX_REGISTER_SIZE];
+  CORE_ADDR pc;
 
   frame_unwind_register (frame, regnum, buf);
-  return extract_unsigned_integer (buf, size, byte_order);
+  pc = extract_unsigned_integer (buf, size, byte_order);
+  /* Like to save the orignal pc value when handler is being called in AIX
+     When signal handler is being called pc value is actually the millicode address. */
+  /* if pc is something like 0x46dc, 0x4a5c etc..
+  Then it is most likekly the aix signal handler frame.
+  Read the pc from the signal handler frame at an offset 96+lr_offset. */
+  if (pc && (pc < AIX_TEXT_SEGMENT_BASE)) {
+      aix_sig_millicode = pc;
+      if (is64)  {
+          pc = read_memory_unsigned_integer
+                 (get_frame_base (frame) + SIG_FRAME_PC_OFFSET64,
+                 size, byte_order);
+      }
+      else
+         pc = read_memory_unsigned_integer
+                (get_frame_base (frame) + SIG_FRAME_PC_OFFSET+8,
+                size, byte_order);
+  }
+  return pc;
 }
 
 ULONGEST

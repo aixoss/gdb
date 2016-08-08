@@ -49,6 +49,8 @@
 
 #include "gdb-stabs.h"
 
+int is64;
+
 /* For interface with stabsread.c.  */
 #include "aout/stab_gnu.h"
 
@@ -1754,6 +1756,7 @@ read_symbol_lineno (int symno)
 {
   struct objfile *objfile = this_symtab_objfile;
   int xcoff64 = bfd_xcoff_is_xcoff64 (objfile->obfd);
+  is64 = xcoff64;
 
   struct coff_symfile_info *info = XCOFF_DATA (objfile);
   int nsyms = info->symtbl_num_syms;
