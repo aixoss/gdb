@@ -2773,6 +2773,10 @@ basic_lookup_transparent_type_quick (struct objfile *objfile, int block_index,
 
   if (!objfile->sf)
     return NULL;
+  /* On aix when trying to look for binary_function gdb hangs in some cases.
+     This is a temporary fix to avoid the hang issues */
+  if (!strcmp(name, "binary_function<int, int, bool>"))
+    return NULL;
   cust = objfile->sf->qf->lookup_symbol (objfile, block_index, name,
 					 STRUCT_DOMAIN);
   if (cust == NULL)
