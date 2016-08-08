@@ -1028,6 +1028,7 @@ read_xcoff_symtab (struct objfile *objfile, struct partial_symtab *pst)
   int just_started = 1;
   int depth = 0;
   CORE_ADDR fcn_start_addr = 0;
+  int is_cpp_name;
 
   struct coff_symbol fcn_stab_saved = { 0 };
 
@@ -1035,7 +1036,7 @@ read_xcoff_symtab (struct objfile *objfile, struct partial_symtab *pst)
   union internal_auxent fcn_aux_saved = main_aux;
   struct context_stack *new;
 
-  char *filestring = " _start_ ";	/* Name of the current file.  */
+  char *filestring = pst -> filename;	/* Name of the current file.  */
 
   const char *last_csect_name;	/* Last seen csect's name.  */
 
@@ -1128,8 +1129,13 @@ read_xcoff_symtab (struct objfile *objfile, struct partial_symtab *pst)
       }
 
       /* if symbol name starts with ".$" or "$", ignore it.  */
-      if (cs->c_name[0] == '$'
+      /* We also need to skip symbols starting with @FIX, which are used for TOC reference */
+      is_cpp_name = 0;
+      if (cs->c_name[0] == '$' && cs->c_name[1] == '_')
+        is_cpp_name = 1;
+      if ((cs->c_name[0] == '$' || !strncmp(cs->c_name, "@FIX", 4)
 	  || (cs->c_name[1] == '$' && cs->c_name[0] == '.'))
+          && !is_cpp_name)
 	continue;
 
       if (cs->c_symnum == next_file_symnum && cs->c_sclass != C_FILE)
@@ -1148,8 +1154,7 @@ read_xcoff_symtab (struct objfile *objfile, struct partial_symtab *pst)
 	  /* Done with all files, everything from here on is globals.  */
 	}
 
-      if ((cs->c_sclass == C_EXT || cs->c_sclass == C_HIDEXT)
-	  && cs->c_naux == 1)
+      if ((cs->c_sclass == C_EXT || cs->c_sclass == C_HIDEXT))
 	{
 	  /* Dealing with a symbol with a csect entry.  */
 
@@ -1160,8 +1165,25 @@ read_xcoff_symtab (struct objfile *objfile, struct partial_symtab *pst)
 #define	CSECT_SCLAS(PP) (CSECT(PP).x_smclas)
 
 	  /* Convert the auxent to something we can access.  */
-	  bfd_coff_swap_aux_in (abfd, raw_auxptr, cs->c_type, cs->c_sclass,
-				0, cs->c_naux, &main_aux);
+             /* xcoff can have more than 1 auxent */
+             if (cs->c_naux > 1)
+               {
+                 if (ISFCN (cs->c_type) && cs->c_sclass != C_TPDEF)
+                  {
+                   bfd_coff_swap_aux_in (abfd, raw_auxptr, cs->c_type, cs->c_sclass,
+                   0, cs->c_naux, &main_aux);
+                   goto function_entry_point;
+                  }
+            else
+                 bfd_coff_swap_aux_in (abfd,
+                                        raw_auxptr + ((coff_data (abfd)->local_symesz) * (cs->c_naux - 1)),
+                                        cs->c_type, cs->c_sclass, cs->c_naux - 1, cs->c_naux, &main_aux);
+               }
+             else if (cs->c_naux == 1)
+                 bfd_coff_swap_aux_in (abfd, raw_auxptr, cs->c_type, cs->c_sclass,
+                                       0, cs->c_naux, &main_aux);
+             else
+                continue ;
 
 	  switch (CSECT_SMTYP (&main_aux))
 	    {
