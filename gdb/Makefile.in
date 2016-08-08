@@ -861,7 +861,7 @@ SFILES = ada-exp.y ada-lang.c ada-typeprint.c ada-valprint.c ada-tasks.c \
 	m2-exp.y m2-lang.c m2-typeprint.c m2-valprint.c \
 	macrotab.c macroexp.c macrocmd.c macroscope.c main.c maint.c \
 	mdebugread.c memattr.c mem-break.c minsyms.c mipsread.c memory-map.c \
-	memrange.c mi/mi-common.c \
+	memrange.c mi/mi-common.c mmapfile.c \
 	namespace.c \
 	objc-lang.c \
 	objfiles.c osabi.c observer.c osdata.c \
@@ -1083,7 +1083,7 @@ COMMON_OBS = $(DEPFILES) $(CONFIG_OBS) $(YYOBJ) \
 	trad-frame.o \
 	tramp-frame.o \
 	solib.o solib-target.o \
-	prologue-value.o memory-map.o memrange.o \
+	prologue-value.o memory-map.o mmapfile.o memrange.o \
 	xml-support.o xml-syscall.o xml-utils.o \
 	target-descriptions.o target-memory.o xml-tdesc.o xml-builtin.o \
 	inferior.o osdata.o gdb_usleep.o record.o record-full.o gcore.o \

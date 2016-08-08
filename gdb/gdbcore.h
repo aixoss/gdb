@@ -29,6 +29,10 @@ struct regcache;
 #include "exec.h"
 #include "target.h"
 
+/* Get the updated core_data after mmap */
+
+extern void mmap_core (struct target_section_table * coreinfo_data);
+
 /* Return the name of the executable file as a string.
    ERR nonzero means get error if there is none specified;
    otherwise return 0 in that case.  */
@@ -139,7 +143,7 @@ extern void specify_exec_file_hook (void (*hook) (const char *filename));
 
 /* Binary File Diddler for the core file.  */
 
-extern bfd *core_bfd;
+extern bfd *core_bfd, *mmap_bfd;
 
 extern struct target_ops *core_target;
 
