@@ -620,6 +620,13 @@ print_frame_args (struct symbol *func, struct frame_info *frame,
 
 	      nsym = lookup_symbol (SYMBOL_LINKAGE_NAME (sym),
 				    b, VAR_DOMAIN, NULL).symbol;
+              /* if (!nsym) continue; */
+              if (!nsym)
+              {
+		  ui_out_text (uiout, "NULL");
+		  ui_out_wrap_hint (uiout, "    ");
+		  continue;
+              }
 	      gdb_assert (nsym != NULL);
 	      if (SYMBOL_CLASS (nsym) == LOC_REGISTER
 		  && !SYMBOL_IS_ARGUMENT (nsym))
