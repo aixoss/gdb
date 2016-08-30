@@ -16,6 +16,7 @@
 #include "regset.h"
 #include "sys/mman.h"
 #include "filenames.h"
+#include <readline/tilde.h>
 
 int count = 1;
 
@@ -32,7 +33,7 @@ mmap_command (char *args, int from_tty)
         char                    *file_pathname, *mmapsec_name, *sec_name;
 
         off64_t offset  = 0;
-        caddr_t vaddr   = NULL;
+        bfd_vma vaddr   = 0;
         size_t size     = 0;
         int i = 0;
         char *arg[4];
@@ -101,7 +102,7 @@ address 0x%15.lX as it results in an overlap\nuse info target for more info"), a
 
 /* mmap the given file to the desired address/symbol and let vaddr point to it */
 
-        vaddr = mmap(addr, size, PROT_READ, MAP_FIXED | MAP_SHARED, fd, offset);
+        vaddr = (bfd_vma) mmap((void*)addr, size, PROT_READ, MAP_FIXED | MAP_SHARED, fd, offset);
 
         if ((long) vaddr == -1)
                    error(_("MMAP_ERROR:\nCannot memory map file <%s> at\n\
@@ -111,7 +112,7 @@ address 0x%15.lX as it results in an overlap\nuse info target for more info"), a
 
         mmapsec_name = bfd_get_unique_section_name (core_bfd, "mmap_section", &count);
 
-        sec_name = malloc (snprintf (NULL, 0, "%s (Mapped to %s)", mmapsec_name, file_pathname));
+        sec_name = (char*) malloc (snprintf (NULL, 0, "%s (Mapped to %s)", mmapsec_name, file_pathname));
 
         sprintf(sec_name, "%s (Mapped to %s)", mmapsec_name, file_pathname);
 
@@ -121,7 +122,7 @@ address 0x%15.lX as it results in an overlap\nuse info target for more info"), a
 
 /* Fill out the required section contents */
 
-        sec->contents = (char*) vaddr;
+        sec->contents = (unsigned char*) vaddr;
         bfd_set_section_vma (core_bfd, sec, vaddr);
         bfd_set_section_alignment (core_bfd, sec, 0);
         bfd_set_section_size (core_bfd, sec, size);
@@ -174,7 +175,7 @@ int mmap_fileopen (const char *path, const char *string,
   if (!path)
     path = ".";
 
-          filename = alloca (strlen (string) + 1);
+  filename = (char*) alloca (strlen (string) + 1);
           strcpy (filename, string);
           fd = open (filename, O_RDONLY);
           if (fd >= 0)
@@ -193,7 +194,7 @@ int mmap_fileopen (const char *path, const char *string,
     string += 2;
 
   alloclen = strlen (path) + strlen (string) + 2;
-  filename = alloca (alloclen);
+  filename = (char*) alloca (alloclen);
   fd = -1;
 
   dir_vec = dirnames_to_char_ptr_vec (path);
@@ -214,7 +215,7 @@ int mmap_fileopen (const char *path, const char *string,
           if (newlen > alloclen)
             {
               alloclen = newlen;
-              filename = alloca (alloclen);
+              filename = (char*) alloca (alloclen);
             }
           strcpy (filename, current_directory);
         }
@@ -232,7 +233,7 @@ int mmap_fileopen (const char *path, const char *string,
           if (newlen > alloclen)
             {
               alloclen = newlen;
-              filename = alloca (alloclen);
+              filename = (char*) alloca (alloclen);
             }
           strcpy (filename, tilde_expanded);
           xfree (tilde_expanded);

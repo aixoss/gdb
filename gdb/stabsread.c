@@ -3439,7 +3439,7 @@ read_xlC_struct_fields (struct field_info *fip, char **pp, struct type *type,
 		    struct objfile *objfile)
 {
   char *p;
-  struct nextfield *new;
+  struct nextfield *xlnew;
   char *p1, *p2;
   int is_vft = 0;
 
@@ -3456,11 +3456,11 @@ read_xlC_struct_fields (struct field_info *fip, char **pp, struct type *type,
     {
       STABS_CONTINUE (pp, objfile);
       /* Get space to record the next field's data.  */
-      new = (struct nextfield *) xmalloc (sizeof (struct nextfield));
-      make_cleanup (xfree, new);
-      memset (new, 0, sizeof (struct nextfield));
-      new->next = fip->list;
-      fip->list = new;
+      xlnew = (struct nextfield *) xmalloc (sizeof (struct nextfield));
+      make_cleanup (xfree, xlnew);
+      memset (xlnew, 0, sizeof (struct nextfield));
+      xlnew->next = fip->list;
+      fip->list = xlnew;
 
       /* Get the field name.  */
       p = *pp;
@@ -3510,7 +3510,7 @@ read_xlC_struct_fields (struct field_info *fip, char **pp, struct type *type,
 	    /* Check if we hit the end of stabstring.  */
 	    if (*(p+1) == ';')
 	     {
-	      fip->list =  new->next;
+	      fip->list =  xlnew->next;
 	      return 1;
 	     }
 	    break;
@@ -3561,10 +3561,10 @@ read_xlC_struct_fields (struct field_info *fip, char **pp, struct type *type,
              read_one_struct_field (fip, pp, p, type, objfile);
               is_vft = 0;
           } else {
-              new = fip->list;
+              xlnew = fip->list;
               fip->list = fip->list->next;
-              xfree (new);
-              new = NULL;
+              xfree (xlnew);
+              xlnew = NULL;
               while (**pp != ';')
                  (*pp)++;
               (*pp)++;
@@ -3721,7 +3721,7 @@ read_xlC_baseclasses (struct field_info *fip, char **pp, struct type *type,
 {
   int i;
   int nbase_classes = 0;
-  struct nextfield *new;
+  struct nextfield *xlnew;
   char *p, *base_spec;
 
   /* return 0 if not a class union or struct */
@@ -3772,12 +3772,12 @@ read_xlC_baseclasses (struct field_info *fip, char **pp, struct type *type,
   
   for (i = 0; i < TYPE_N_BASECLASSES (type); i++)
     {
-      new = (struct nextfield *) xmalloc (sizeof (struct nextfield));
-      make_cleanup (xfree, new);
-      memset (new, 0, sizeof (struct nextfield));
-      new->next = fip->list;
-      fip->list = new;
-      FIELD_BITSIZE (new->field) = 0;	/* This should be an unpacked
+      xlnew = (struct nextfield *) xmalloc (sizeof (struct nextfield));
+      make_cleanup (xfree, xlnew);
+      memset (xlnew, 0, sizeof (struct nextfield));
+      xlnew->next = fip->list;
+      fip->list = xlnew;
+      FIELD_BITSIZE (xlnew->field) = 0;	/* This should be an unpacked
 					   field!  */
 
       STABS_CONTINUE (pp, objfile);
@@ -3805,13 +3805,13 @@ read_xlC_baseclasses (struct field_info *fip, char **pp, struct type *type,
 		switch (**pp)
 		{
 		case 'u':
-		   new->visibility = VISIBILITY_PUBLIC;
+		   xlnew->visibility = VISIBILITY_PUBLIC;
 		   break;
 		case 'i':
-		  new->visibility = VISIBILITY_PRIVATE;
+		  xlnew->visibility = VISIBILITY_PRIVATE;
 		  break; 
 		case 'o':
-		  new->visibility = VISIBILITY_PROTECTED;
+		  xlnew->visibility = VISIBILITY_PROTECTED;
 		  break;
 		default:
 		  /* Bad visibility format.  Complain and treat it as
@@ -3819,8 +3819,8 @@ read_xlC_baseclasses (struct field_info *fip, char **pp, struct type *type,
 		  {
 			complaint (&symfile_complaints,
 				   _("Unknown visibility `%c' for baseclass"),
-				   new->visibility);
-			new->visibility = VISIBILITY_PUBLIC;
+				   xlnew->visibility);
+			xlnew->visibility = VISIBILITY_PUBLIC;
 		  }
 		}
 
@@ -3832,18 +3832,18 @@ read_xlC_baseclasses (struct field_info *fip, char **pp, struct type *type,
 		   corresponding to this baseclass.  Always zero in the absence of
 		   multiple inheritance.  */
 
-		SET_FIELD_BITPOS (new->field, read_huge_number (pp, ':', &nbits, 0));
+		SET_FIELD_BITPOS (xlnew->field, read_huge_number (pp, ':', &nbits, 0));
 		if (nbits != 0)
 		  return 0;
-                new->field.loc.bitpos = new->field.loc.bitpos * 8;
+                xlnew->field.loc.bitpos = xlnew->field.loc.bitpos * 8;
        }
 
       /* The last piece of baseclass information is the type of the
          base class.  Read it, and remember it's type name as this
          field's name.  */
 
-      new->field.type = read_type (pp, objfile);
-      new->field.name = type_name_no_tag (new->field.type);
+      xlnew->field.type = read_type (pp, objfile);
+      xlnew->field.name = type_name_no_tag (xlnew->field.type);
 
       /* Skip trailing ';' and bump count of number of fields seen.  */
       if ((**pp == ',') || (**pp == '('))
@@ -4103,7 +4103,7 @@ read_xlC_vptr (struct field_info *fip, char *pp, struct type *type,
   while (*pp != '\0' && (*pp != ':' && *pp != '('))
          (pp)++; 
    if (*pp == '(') {
-      TYPE_VPTR_BASETYPE (type) = type;
+      set_type_vptr_basetype (type, type);
       for (i = TYPE_NFIELDS (type) - 1;
             i >= TYPE_N_BASECLASSES (type);
             --i)
@@ -4111,7 +4111,7 @@ read_xlC_vptr (struct field_info *fip, char *pp, struct type *type,
           const char *name = TYPE_FIELD_NAME (type, i);
           if (!strncmp (name, "__vft", 5)) 
           {
-               TYPE_VPTR_FIELDNO (type) = i;
+               set_type_vptr_fieldno (type, i);
                return 0;
           }
       } 
@@ -4120,7 +4120,7 @@ read_xlC_vptr (struct field_info *fip, char *pp, struct type *type,
            struct type *t;
            (pp)++;
            t = read_type (&pp, objfile);
-           TYPE_VPTR_BASETYPE (type) = t;
+           set_type_vptr_basetype (type, t);
            for (i = TYPE_NFIELDS (type) - 1;
                 i >= TYPE_N_BASECLASSES (type);
                 --i)
@@ -4128,7 +4128,7 @@ read_xlC_vptr (struct field_info *fip, char *pp, struct type *type,
                 const char *name = TYPE_FIELD_NAME (type, i);
                 if (!strncmp (name, "__vft", 5))
                 {
-                    TYPE_VPTR_FIELDNO (type) = i;
+                    set_type_vptr_fieldno (type, i);
                     return 0;
                 }
            }

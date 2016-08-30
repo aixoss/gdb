@@ -656,7 +656,7 @@ solib_aix_bfd_open (char *pathname)
      gdb_sysroot to shared library path  */
   /* .a case */
   if (gdb_sysroot != NULL && *gdb_sysroot != 0) {
-      sys_path = alloca (sizeof(gdb_sysroot)+strlen(pathname)); 
+    sys_path = (char*) alloca (sizeof(gdb_sysroot)+strlen(pathname)); 
       memset (sys_path, 0, sizeof(sys_path));
       strcpy(sys_path, gdb_sysroot);
       pathname = strcat (sys_path, pathname);
