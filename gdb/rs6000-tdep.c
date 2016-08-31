@@ -43,7 +43,6 @@
 #include "record-full.h"
 #include "auxv.h"
 
-#include "libbfd.h"		/* for bfd_default_set_arch_mach */
 #include "coff/internal.h"	/* for libcoff.h */
 #include "libcoff.h"		/* for xcoff_data */
 #include "coff/xcoff.h"
@@ -62,6 +61,9 @@
 #include "trad-frame.h"
 #include "frame-unwind.h"
 #include "frame-base.h"
+
+#include "ax.h"
+#include "ax-gdb.h"
 
 #include "features/rs6000/powerpc-32.c"
 #include "features/rs6000/powerpc-altivec32.c"
@@ -1162,7 +1164,6 @@ ppc_deal_with_atomic_sequence (struct frame_info *frame)
   int index;
   int last_breakpoint = 0; /* Defaults to 0 (no breakpoints placed).  */  
   const int atomic_sequence_length = 16; /* Instruction sequence length.  */
-  int opcode; /* Branch instruction's OPcode.  */
   int bc_insn_count = 0; /* Conditional branch instruction count.  */
 
   /* Assume all atomic sequences start with a lwarx/ldarx instruction.  */
@@ -2919,6 +2920,62 @@ rs6000_pseudo_register_write (struct gdbarch *gdbarch,
 		    gdbarch_register_name (gdbarch, reg_nr), reg_nr);
 }
 
+static int
+rs6000_ax_pseudo_register_collect (struct gdbarch *gdbarch,
+				   struct agent_expr *ax, int reg_nr)
+{
+  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
+  if (IS_SPE_PSEUDOREG (tdep, reg_nr))
+    {
+      int reg_index = reg_nr - tdep->ppc_ev0_regnum;
+      ax_reg_mask (ax, tdep->ppc_gp0_regnum + reg_index);
+      ax_reg_mask (ax, tdep->ppc_ev0_upper_regnum + reg_index);
+    }
+  else if (IS_DFP_PSEUDOREG (tdep, reg_nr))
+    {
+      int reg_index = reg_nr - tdep->ppc_dl0_regnum;
+      ax_reg_mask (ax, tdep->ppc_fp0_regnum + 2 * reg_index);
+      ax_reg_mask (ax, tdep->ppc_fp0_regnum + 2 * reg_index + 1);
+    }
+  else if (IS_VSX_PSEUDOREG (tdep, reg_nr))
+    {
+      int reg_index = reg_nr - tdep->ppc_vsr0_regnum;
+      if (reg_index > 31)
+        {
+          ax_reg_mask (ax, tdep->ppc_vr0_regnum + reg_index - 32);
+	}
+      else
+        {
+          ax_reg_mask (ax, tdep->ppc_fp0_regnum + reg_index);
+          ax_reg_mask (ax, tdep->ppc_vsr0_upper_regnum + reg_index);
+        }
+    }
+  else if (IS_EFP_PSEUDOREG (tdep, reg_nr))
+    {
+      int reg_index = reg_nr - tdep->ppc_efpr0_regnum;
+      ax_reg_mask (ax, tdep->ppc_vr0_regnum + reg_index);
+    }
+  else
+    internal_error (__FILE__, __LINE__,
+		    _("rs6000_pseudo_register_collect: "
+		    "called on unexpected register '%s' (%d)"),
+		    gdbarch_register_name (gdbarch, reg_nr), reg_nr);
+  return 0;
+}
+
+
+static void
+rs6000_gen_return_address (struct gdbarch *gdbarch,
+			   struct agent_expr *ax, struct axs_value *value,
+			   CORE_ADDR scope)
+{
+  struct gdbarch_tdep *tdep = gdbarch_tdep (gdbarch);
+  value->type = register_type (gdbarch, tdep->ppc_lr_regnum);
+  value->kind = axs_lvalue_register;
+  value->u.reg = tdep->ppc_lr_regnum;
+}
+
+
 /* Convert a DBX STABS register number to a GDB register number.  */
 static int
 rs6000_stab_reg_to_regnum (struct gdbarch *gdbarch, int num)
@@ -3191,6 +3248,13 @@ struct rs6000_frame_cache
   CORE_ADDR base;
   CORE_ADDR initial_sp;
   struct trad_frame_saved_reg *saved_regs;
+
+  /* Set BASE_P to true if this frame cache is properly initialized.
+     Otherwise set to false because some registers or memory cannot
+     collected.  */
+  int base_p;
+  /* Cache PC for building unavailable frame.  */
+  CORE_ADDR pc;
 };
 
 static struct rs6000_frame_cache *
@@ -3202,27 +3266,39 @@ rs6000_frame_cache (struct frame_info *this_frame, void **this_cache)
   enum bfd_endian byte_order = gdbarch_byte_order (gdbarch);
   struct rs6000_framedata fdata;
   int wordsize = tdep->wordsize;
-  CORE_ADDR func, pc;
+  CORE_ADDR func = 0, pc = 0;
 
   if ((*this_cache) != NULL)
     return (struct rs6000_frame_cache *) (*this_cache);
   cache = FRAME_OBSTACK_ZALLOC (struct rs6000_frame_cache);
   (*this_cache) = cache;
+  cache->pc = 0;
   cache->saved_regs = trad_frame_alloc_saved_regs (this_frame);
 
-  func = get_frame_func (this_frame);
-  pc = get_frame_pc (this_frame);
-  skip_prologue (gdbarch, func, pc, &fdata);
+  TRY
+    {
+      func = get_frame_func (this_frame);
+      cache->pc = func;
+      pc = get_frame_pc (this_frame);
+      skip_prologue (gdbarch, func, pc, &fdata);
 
-  /* Figure out the parent's stack pointer.  */
+      /* Figure out the parent's stack pointer.  */
 
-  /* NOTE: cagney/2002-04-14: The ->frame points to the inner-most
-     address of the current frame.  Things might be easier if the
-     ->frame pointed to the outer-most address of the frame.  In
-     the mean time, the address of the prev frame is used as the
-     base address of this frame.  */
-  cache->base = get_frame_register_unsigned
-		(this_frame, gdbarch_sp_regnum (gdbarch));
+      /* NOTE: cagney/2002-04-14: The ->frame points to the inner-most
+	 address of the current frame.  Things might be easier if the
+	 ->frame pointed to the outer-most address of the frame.  In
+	 the mean time, the address of the prev frame is used as the
+	 base address of this frame.  */
+      cache->base = get_frame_register_unsigned
+	(this_frame, gdbarch_sp_regnum (gdbarch));
+    }
+  CATCH (ex, RETURN_MASK_ERROR)
+    {
+      if (ex.error != NOT_AVAILABLE_ERROR)
+	throw_exception (ex);
+      return (struct rs6000_frame_cache *) (*this_cache);
+    }
+  END_CATCH
 
   /* If the function appears to be frameless, check a couple of likely
      indicators that we have simply failed to find the frame setup.
@@ -3258,10 +3334,10 @@ rs6000_frame_cache (struct frame_info *this_frame, void **this_cache)
   if (!fdata.frameless)
     {
       /* Frameless really means stackless.  */
-      LONGEST backchain;
+      ULONGEST backchain;
 
-      if (safe_read_memory_integer (cache->base, wordsize,
-				    byte_order, &backchain))
+      if (safe_read_memory_unsigned_integer (cache->base, wordsize,
+					     byte_order, &backchain))
         cache->base = (CORE_ADDR) backchain;
     }
 
@@ -3371,6 +3447,7 @@ rs6000_frame_cache (struct frame_info *this_frame, void **this_cache)
     cache->initial_sp
       = get_frame_register_unsigned (this_frame, fdata.alloca_reg);
 
+  cache->base_p = 1;
   return cache;
 }
 
@@ -3380,6 +3457,13 @@ rs6000_frame_this_id (struct frame_info *this_frame, void **this_cache,
 {
   struct rs6000_frame_cache *info = rs6000_frame_cache (this_frame,
 							this_cache);
+
+  if (!info->base_p)
+    {
+      (*this_id) = frame_id_build_unavailable_stack (info->pc);
+      return;
+    }
+
   /* This marks the outermost frame.  */
   if (info->base == 0)
     return;
@@ -4529,23 +4613,24 @@ ppc_process_record_op31 (struct gdbarch *gdbarch, struct regcache *regcache,
 
     case 654:		/* Transaction Begin */
     case 686:		/* Transaction End */
-    case 718:		/* Transaction Check */
     case 750:		/* Transaction Suspend or Resume */
     case 782:		/* Transaction Abort Word Conditional */
     case 814:		/* Transaction Abort Doubleword Conditional */
     case 846:		/* Transaction Abort Word Conditional Immediate */
     case 878:		/* Transaction Abort Doubleword Conditional Immediate */
     case 910:		/* Transaction Abort */
-      fprintf_unfiltered (gdb_stdlog, "Cannot record Transaction instructions. "
-			  "%08x at %s, 31-%d.\n",
-			  insn, paddress (gdbarch, addr), ext);
-      return -1;
+      record_full_arch_list_add_reg (regcache, tdep->ppc_ps_regnum);
+      /* FALL-THROUGH */
+    case 718:		/* Transaction Check */
+      record_full_arch_list_add_reg (regcache, tdep->ppc_cr_regnum);
+      return 0;
 
     case 1014:		/* Data Cache Block set to Zero */
       if (target_auxv_search (&current_target, AT_DCACHEBSIZE, &at_dcsz) <= 0
 	  || at_dcsz == 0)
 	at_dcsz = 128; /* Assume 128-byte cache line size (POWER8)  */
 
+      ra = 0;
       if (PPC_RA (insn) != 0)
 	regcache_raw_read_unsigned (regcache,
 				    tdep->ppc_gp0_regnum + PPC_RA (insn), &ra);
@@ -5897,7 +5982,11 @@ rs6000_gdbarch_init (struct gdbarch_info info, struct gdbarch_list *arches)
       set_gdbarch_pseudo_register_read (gdbarch, rs6000_pseudo_register_read);
       set_gdbarch_pseudo_register_write (gdbarch,
 					 rs6000_pseudo_register_write);
+      set_gdbarch_ax_pseudo_register_collect (gdbarch,
+	      rs6000_ax_pseudo_register_collect);
     }
+
+  set_gdbarch_gen_return_address (gdbarch, rs6000_gen_return_address);
 
   set_gdbarch_have_nonsteppable_watchpoint (gdbarch, 1);
 

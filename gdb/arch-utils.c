@@ -132,6 +132,13 @@ generic_stack_frame_destroyed_p (struct gdbarch *gdbarch, CORE_ADDR pc)
   return 0;
 }
 
+int
+default_code_of_frame_writable (struct gdbarch *gdbarch,
+				struct frame_info *frame)
+{
+  return 1;
+}
+
 /* Helper functions for gdbarch_inner_than */
 
 int
@@ -850,10 +857,9 @@ default_skip_permanent_breakpoint (struct regcache *regcache)
 {
   struct gdbarch *gdbarch = get_regcache_arch (regcache);
   CORE_ADDR current_pc = regcache_read_pc (regcache);
-  const gdb_byte *bp_insn;
   int bp_len;
 
-  bp_insn = gdbarch_breakpoint_from_pc (gdbarch, &current_pc, &bp_len);
+  gdbarch_breakpoint_from_pc (gdbarch, &current_pc, &bp_len);
   current_pc += bp_len;
   regcache_write_pc (regcache, current_pc);
 }
@@ -895,6 +901,29 @@ int
 default_addressable_memory_unit_size (struct gdbarch *gdbarch)
 {
   return 1;
+}
+
+void
+default_guess_tracepoint_registers (struct gdbarch *gdbarch,
+				    struct regcache *regcache,
+				    CORE_ADDR addr)
+{
+  int pc_regno = gdbarch_pc_regnum (gdbarch);
+  gdb_byte *regs;
+
+  /* This guessing code below only works if the PC register isn't
+     a pseudo-register.  The value of a pseudo-register isn't stored
+     in the (non-readonly) regcache -- instead it's recomputed
+     (probably from some other cached raw register) whenever the
+     register is read.  In this case, a custom method implementation
+     should be used by the architecture.  */
+  if (pc_regno < 0 || pc_regno >= gdbarch_num_regs (gdbarch))
+    return;
+
+  regs = (gdb_byte *) alloca (register_size (gdbarch, pc_regno));
+  store_unsigned_integer (regs, register_size (gdbarch, pc_regno),
+			  gdbarch_byte_order (gdbarch), addr);
+  regcache_raw_supply (regcache, pc_regno, regs);
 }
 
 /* -Wmissing-prototypes */

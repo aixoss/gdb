@@ -202,27 +202,6 @@ ctf_save_next_packet (struct trace_write_handler *handler)
 static void
 ctf_save_metadata_header (struct trace_write_handler *handler)
 {
-  const char metadata_fmt[] =
-  "\ntrace {\n"
-  "	major = %u;\n"
-  "	minor = %u;\n"
-  "	byte_order = %s;\n"		/* be or le */
-  "	packet.header := struct {\n"
-  "		uint32_t magic;\n"
-  "	};\n"
-  "};\n"
-  "\n"
-  "stream {\n"
-  "	packet.context := struct {\n"
-  "		uint32_t content_size;\n"
-  "		uint32_t packet_size;\n"
-  "		uint16_t tpnum;\n"
-  "	};\n"
-  "	event.header := struct {\n"
-  "		uint32_t id;\n"
-  "	};\n"
-  "};\n";
-
   ctf_save_write_metadata (handler, "/* CTF %d.%d */\n",
 			   CTF_SAVE_MAJOR, CTF_SAVE_MINOR);
   ctf_save_write_metadata (handler,
@@ -262,7 +241,26 @@ ctf_save_metadata_header (struct trace_write_handler *handler)
 #define HOST_ENDIANNESS "le"
 #endif
 
-  ctf_save_write_metadata (handler, metadata_fmt,
+  ctf_save_write_metadata (handler,
+			   "\ntrace {\n"
+			   "	major = %u;\n"
+			   "	minor = %u;\n"
+			   "	byte_order = %s;\n"
+			   "	packet.header := struct {\n"
+			   "		uint32_t magic;\n"
+			   "	};\n"
+			   "};\n"
+			   "\n"
+			   "stream {\n"
+			   "	packet.context := struct {\n"
+			   "		uint32_t content_size;\n"
+			   "		uint32_t packet_size;\n"
+			   "		uint16_t tpnum;\n"
+			   "	};\n"
+			   "	event.header := struct {\n"
+			   "		uint32_t id;\n"
+			   "	};\n"
+			   "};\n",
 			   CTF_SAVE_MAJOR, CTF_SAVE_MINOR,
 			   HOST_ENDIANNESS);
   ctf_save_write_metadata (handler, "\n");
@@ -617,6 +615,15 @@ ctf_write_uploaded_tp (struct trace_file_writer *self,
 }
 
 /* This is the implementation of trace_file_write_ops method
+   write_tdesc.  */
+
+static void
+ctf_write_tdesc (struct trace_file_writer *self)
+{
+  /* Nothing so far. */
+}
+
+/* This is the implementation of trace_file_write_ops method
    write_definition_end.  */
 
 static void
@@ -799,6 +806,7 @@ static const struct trace_file_write_ops ctf_write_ops =
   ctf_write_status,
   ctf_write_uploaded_tsv,
   ctf_write_uploaded_tp,
+  ctf_write_tdesc,
   ctf_write_definition_end,
   NULL,
   &ctf_write_frame_ops,
@@ -1684,7 +1692,7 @@ ctf_traceframe_info (struct target_ops *self)
 	  const struct bt_definition *def;
 
 	  def = bt_ctf_get_field (event, scope, "num");
-	  vnum = (int) bt_ctf_get_int64 (def);
+	  vnum = (int) bt_ctf_get_uint64 (def);
 	  VEC_safe_push (int, info->tvars, vnum);
 	}
       else

@@ -337,14 +337,13 @@ address_to_signed_pointer (struct gdbarch *gdbarch, struct type *type,
   store_signed_integer (buf, TYPE_LENGTH (type), byte_order, addr);
 }
 
-/* Will calling read_var_value or locate_var_value on SYM end
-   up caring what frame it is being evaluated relative to?  SYM must
-   be non-NULL.  */
-int
-symbol_read_needs_frame (struct symbol *sym)
+/* See value.h.  */
+
+enum symbol_needs_kind
+symbol_read_needs (struct symbol *sym)
 {
   if (SYMBOL_COMPUTED_OPS (sym) != NULL)
-    return SYMBOL_COMPUTED_OPS (sym)->read_needs_frame (sym);
+    return SYMBOL_COMPUTED_OPS (sym)->get_symbol_read_needs (sym);
 
   switch (SYMBOL_CLASS (sym))
     {
@@ -358,7 +357,7 @@ symbol_read_needs_frame (struct symbol *sym)
     case LOC_REF_ARG:
     case LOC_REGPARM_ADDR:
     case LOC_LOCAL:
-      return 1;
+      return SYMBOL_NEEDS_FRAME;
 
     case LOC_UNDEF:
     case LOC_CONST:
@@ -374,9 +373,17 @@ symbol_read_needs_frame (struct symbol *sym)
     case LOC_CONST_BYTES:
     case LOC_UNRESOLVED:
     case LOC_OPTIMIZED_OUT:
-      return 0;
+      return SYMBOL_NEEDS_NONE;
     }
-  return 1;
+  return SYMBOL_NEEDS_FRAME;
+}
+
+/* See value.h.  */
+
+int
+symbol_read_needs_frame (struct symbol *sym)
+{
+  return symbol_read_needs (sym) == SYMBOL_NEEDS_FRAME;
 }
 
 /* Private data to be used with minsym_lookup_iterator_cb.  */
@@ -435,6 +442,7 @@ follow_static_link (struct frame_info *frame,
       /* If we don't know how to compute FRAME's base address, don't give up:
 	 maybe the frame we are looking for is upper in the stace frame.  */
       if (framefunc != NULL
+	  && SYMBOL_BLOCK_OPS (framefunc) != NULL
 	  && SYMBOL_BLOCK_OPS (framefunc)->get_frame_base != NULL
 	  && (SYMBOL_BLOCK_OPS (framefunc)->get_frame_base (framefunc, frame)
 	      == upper_frame_base))
@@ -574,6 +582,7 @@ default_read_var_value (struct symbol *var, const struct block *var_block,
   struct value *v;
   struct type *type = SYMBOL_TYPE (var);
   CORE_ADDR addr;
+  enum symbol_needs_kind sym_need;
 
   /* Call check_typedef on our type to make sure that, if TYPE is
      a TYPE_CODE_TYPEDEF, its length is set to the length of the target type
@@ -582,8 +591,11 @@ default_read_var_value (struct symbol *var, const struct block *var_block,
      set the returned value type description correctly.  */
   check_typedef (type);
 
-  if (symbol_read_needs_frame (var))
+  sym_need = symbol_read_needs (var);
+  if (sym_need == SYMBOL_NEEDS_FRAME)
     gdb_assert (frame != NULL);
+  else if (sym_need == SYMBOL_NEEDS_REGISTERS && !target_has_registers)
+    error (_("Cannot read `%s' without registers"), SYMBOL_PRINT_NAME (var));
 
   if (frame != NULL)
     frame = get_hosting_frame (var, var_block, frame);
@@ -834,8 +846,8 @@ void
 read_frame_register_value (struct value *value, struct frame_info *frame)
 {
   struct gdbarch *gdbarch = get_frame_arch (frame);
-  int offset = 0;
-  int reg_offset = value_offset (value);
+  LONGEST offset = 0;
+  LONGEST reg_offset = value_offset (value);
   int regnum = VALUE_REGNUM (value);
   int len = type_length_units (check_typedef (value_type (value)));
 

@@ -21,7 +21,7 @@ END-INFO-DIR-ENTRY
    This file documents the GNU debugger GDB.
 
    This is the Tenth Edition, of 'Debugging with GDB: the GNU
-Source-Level Debugger' for GDB (GDB) Version 7.11.1.20160801-git.
+Source-Level Debugger' for GDB (GDB) Version 7.11.90.20160830-git.
 
    Copyright (C) 1988-2016 Free Software Foundation, Inc.
 
@@ -3493,6 +3493,31 @@ described in *note Non-debug DLL Symbols::.
      Thread Information Block (readable on the X86 CPU family using
      '$fs' selector for 32-bit programs and '$gs' for 64-bit programs).
 
+'signal-event ID'
+     This command signals an event with user-provided ID.  Used to
+     resume crashing process when attached to it using MS-Windows JIT
+     debugging (AeDebug).
+
+     To use it, create or edit the following keys in
+     'HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\AeDebug' and/or
+     'HKLM\SOFTWARE\Wow6432Node\Microsoft\Windows
+     NT\CurrentVersion\AeDebug' (for x86_64 versions):
+
+        - 'Debugger' (REG_SZ) -- a command to launch the debugger.
+          Suggested command is: 'FULLY-QUALIFIED-PATH-TO-GDB.EXE -ex
+          "attach %ld" -ex "signal-event %ld" -ex "continue"'.
+
+          The first '%ld' will be replaced by the process ID of the
+          crashing process, the second '%ld' will be replaced by the ID
+          of the event that blocks the crashing process, waiting for GDB
+          to attach.
+
+        - 'Auto' (REG_SZ) -- either '1' or '0'.  '1' will make the
+          system run debugger specified by the Debugger key
+          automatically, '0' will cause a dialog box with "OK" and
+          "Cancel" buttons to appear, which allows the user to either
+          terminate the crashing process (OK) or debug it (Cancel).
+
 'set cygwin-exceptions MODE'
      If MODE is 'on', GDB will break on exceptions that happen inside
      the Cygwin DLL. If MODE is 'off', GDB will delay recognition of
@@ -3859,7 +3884,6 @@ send an arbitrary command to the simulator.
 * Menu:
 
 * ARM::                         ARM
-* M32R/SDI::                    Renesas M32R/SDI
 * M68K::                        Motorola M68K
 * MicroBlaze::			Xilinx MicroBlaze
 * MIPS Embedded::               MIPS Embedded
@@ -3869,7 +3893,7 @@ send an arbitrary command to the simulator.
 * Super-H::                     Renesas Super-H
 
 
-File: gdb.info,  Node: ARM,  Next: M32R/SDI,  Up: Embedded Processors
+File: gdb.info,  Node: ARM,  Next: M68K,  Up: Embedded Processors
 
 21.3.1 ARM
 ----------
@@ -3955,40 +3979,9 @@ GDB provides the following ARM-specific commands:
           'all'
 
 
-File: gdb.info,  Node: M32R/SDI,  Next: M68K,  Prev: ARM,  Up: Embedded Processors
+File: gdb.info,  Node: M68K,  Next: MicroBlaze,  Prev: ARM,  Up: Embedded Processors
 
-21.3.2 Renesas M32R/SDI
------------------------
-
-The following commands are available for M32R/SDI:
-
-'sdireset'
-     This command resets the SDI connection.
-
-'sdistatus'
-     This command shows the SDI connection status.
-
-'debug_chaos'
-     Instructs the remote that M32R/Chaos debugging is to be used.
-
-'use_debug_dma'
-     Instructs the remote to use the DEBUG_DMA method of accessing
-     memory.
-
-'use_mon_code'
-     Instructs the remote to use the MON_CODE method of accessing
-     memory.
-
-'use_ib_break'
-     Instructs the remote to set breakpoints by IB break.
-
-'use_dbt_break'
-     Instructs the remote to set breakpoints by DBT.
-
-
-File: gdb.info,  Node: M68K,  Next: MicroBlaze,  Prev: M32R/SDI,  Up: Embedded Processors
-
-21.3.3 M68k
+21.3.2 M68k
 -----------
 
 The Motorola m68k configuration includes ColdFire support.
@@ -3996,7 +3989,7 @@ The Motorola m68k configuration includes ColdFire support.
 
 File: gdb.info,  Node: MicroBlaze,  Next: MIPS Embedded,  Prev: M68K,  Up: Embedded Processors
 
-21.3.4 MicroBlaze
+21.3.3 MicroBlaze
 -----------------
 
 The MicroBlaze is a soft-core processor supported on various Xilinx
@@ -4033,49 +4026,10 @@ need to do this.)
 
 File: gdb.info,  Node: MIPS Embedded,  Next: PowerPC Embedded,  Prev: MicroBlaze,  Up: Embedded Processors
 
-21.3.5 MIPS Embedded
+21.3.4 MIPS Embedded
 --------------------
 
-GDB can use the MIPS remote debugging protocol to talk to a MIPS board
-attached to a serial line.  This is available when you configure GDB
-with '--target=mips-elf'.
-
-   Use these GDB commands to specify the connection to your target
-board:
-
-'target mips PORT'
-     To run a program on the board, start up 'gdb' with the name of your
-     program as the argument.  To connect to the board, use the command
-     'target mips PORT', where PORT is the name of the serial port
-     connected to the board.  If the program has not already been
-     downloaded to the board, you may use the 'load' command to download
-     it.  You can then use all the usual GDB commands.
-
-     For example, this sequence connects to the target board through a
-     serial port, and loads and runs a program called PROG through the
-     debugger:
-
-          host$ gdb PROG
-          GDB is free software and ...
-          (gdb) target mips /dev/ttyb
-          (gdb) load PROG
-          (gdb) run
-
-'target mips HOSTNAME:PORTNUMBER'
-     On some GDB host configurations, you can specify a TCP connection
-     (for instance, to a serial line managed by a terminal concentrator)
-     instead of a serial port, using the syntax 'HOSTNAME:PORTNUMBER'.
-
-'target pmon PORT'
-     PMON ROM monitor.
-
-'target ddb PORT'
-     NEC's DDB variant of PMON for Vr4300.
-
-'target lsi PORT'
-     LSI variant of PMON.
-
-GDB also supports these special commands for MIPS targets:
+GDB supports these special commands for MIPS targets:
 
 'set mipsfpu double'
 'set mipsfpu single'
@@ -4101,64 +4055,10 @@ GDB also supports these special commands for MIPS targets:
      As usual, you can inquire about the 'mipsfpu' variable with 'show
      mipsfpu'.
 
-'set timeout SECONDS'
-'set retransmit-timeout SECONDS'
-'show timeout'
-'show retransmit-timeout'
-     You can control the timeout used while waiting for a packet, in the
-     MIPS remote protocol, with the 'set timeout SECONDS' command.  The
-     default is 5 seconds.  Similarly, you can control the timeout used
-     while waiting for an acknowledgment of a packet with the 'set
-     retransmit-timeout SECONDS' command.  The default is 3 seconds.
-     You can inspect both values with 'show timeout' and 'show
-     retransmit-timeout'.  (These commands are _only_ available when GDB
-     is configured for '--target=mips-elf'.)
-
-     The timeout set by 'set timeout' does not apply when GDB is waiting
-     for your program to stop.  In that case, GDB waits forever because
-     it has no way of knowing how long the program is going to run
-     before stopping.
-
-'set syn-garbage-limit NUM'
-     Limit the maximum number of characters GDB should ignore when it
-     tries to synchronize with the remote target.  The default is 10
-     characters.  Setting the limit to -1 means there's no limit.
-
-'show syn-garbage-limit'
-     Show the current limit on the number of characters to ignore when
-     trying to synchronize with the remote system.
-
-'set monitor-prompt PROMPT'
-     Tell GDB to expect the specified PROMPT string from the remote
-     monitor.  The default depends on the target:
-     pmon target
-          'PMON'
-     ddb target
-          'NEC010'
-     lsi target
-          'PMON>'
-
-'show monitor-prompt'
-     Show the current strings GDB expects as the prompt from the remote
-     monitor.
-
-'set monitor-warnings'
-     Enable or disable monitor warnings about hardware breakpoints.
-     This has effect only for the 'lsi' target.  When on, GDB will
-     display warning messages whose codes are returned by the 'lsi' PMON
-     monitor for breakpoint commands.
-
-'show monitor-warnings'
-     Show the current setting of printing monitor warnings.
-
-'pmon COMMAND'
-     This command allows sending an arbitrary COMMAND string to the
-     monitor.  The monitor must be in debug mode for this to work.
-
 
 File: gdb.info,  Node: PowerPC Embedded,  Next: AVR,  Prev: MIPS Embedded,  Up: Embedded Processors
 
-21.3.6 PowerPC Embedded
+21.3.5 PowerPC Embedded
 -----------------------
 
 GDB supports using the DVC (Data Value Compare) register to implement in
@@ -4230,7 +4130,7 @@ command.
 
 File: gdb.info,  Node: AVR,  Next: CRIS,  Prev: PowerPC Embedded,  Up: Embedded Processors
 
-21.3.7 Atmel AVR
+21.3.6 Atmel AVR
 ----------------
 
 When configured for debugging the Atmel AVR, GDB supports the following
@@ -4243,7 +4143,7 @@ AVR-specific commands:
 
 File: gdb.info,  Node: CRIS,  Next: Super-H,  Prev: AVR,  Up: Embedded Processors
 
-21.3.8 CRIS
+21.3.7 CRIS
 -----------
 
 When configured for debugging CRIS, GDB provides the following
@@ -4276,7 +4176,7 @@ CRIS-specific commands:
 
 File: gdb.info,  Node: Super-H,  Prev: CRIS,  Up: Embedded Processors
 
-21.3.9 Renesas Super-H
+21.3.8 Renesas Super-H
 ----------------------
 
 For the Renesas Super-H processor, GDB provides these commands:
@@ -6332,7 +6232,10 @@ classes added by GDB are placed in this module.  GDB automatically
 
  -- Function: gdb.breakpoints ()
      Return a sequence holding all of GDB's breakpoints.  *Note
-     Breakpoints In Python::, for more information.
+     Breakpoints In Python::, for more information.  In GDB version 7.11
+     and earlier, this function returned 'None' if there were no
+     breakpoints.  This peculiarity was subsequently fixed, and now
+     'gdb.breakpoints' returns an empty sequence in this case.
 
  -- Function: gdb.parameter (parameter)
      Return the value of a GDB PARAMETER given by its name, a string;
@@ -6856,277 +6759,4 @@ function, call it like so:
      effect.
 
      This method does not return a value.
-
-
-File: gdb.info,  Node: Types In Python,  Next: Pretty Printing API,  Prev: Values From Inferior,  Up: Python API
-
-23.2.2.4 Types In Python
-........................
-
-GDB represents types from the inferior using the class 'gdb.Type'.
-
-   The following type-related functions are available in the 'gdb'
-module:
-
- -- Function: gdb.lookup_type (name [, block])
-     This function looks up a type by its NAME, which must be a string.
-
-     If BLOCK is given, then NAME is looked up in that scope.
-     Otherwise, it is searched for globally.
-
-     Ordinarily, this function will return an instance of 'gdb.Type'.
-     If the named type cannot be found, it will throw an exception.
-
-   If the type is a structure or class type, or an enum type, the fields
-of that type can be accessed using the Python "dictionary syntax".  For
-example, if 'some_type' is a 'gdb.Type' instance holding a structure
-type, you can access its 'foo' field with:
-
-     bar = some_type['foo']
-
-   'bar' will be a 'gdb.Field' object; see below under the description
-of the 'Type.fields' method for a description of the 'gdb.Field' class.
-
-   An instance of 'Type' has the following attributes:
-
- -- Variable: Type.code
-     The type code for this type.  The type code will be one of the
-     'TYPE_CODE_' constants defined below.
-
- -- Variable: Type.name
-     The name of this type.  If this type has no name, then 'None' is
-     returned.
-
- -- Variable: Type.sizeof
-     The size of this type, in target 'char' units.  Usually, a target's
-     'char' type will be an 8-bit byte.  However, on some unusual
-     platforms, this type may have a different size.
-
- -- Variable: Type.tag
-     The tag name for this type.  The tag name is the name after
-     'struct', 'union', or 'enum' in C and C++; not all languages have
-     this concept.  If this type has no tag name, then 'None' is
-     returned.
-
-   The following methods are provided:
-
- -- Function: Type.fields ()
-     For structure and union types, this method returns the fields.
-     Range types have two fields, the minimum and maximum values.  Enum
-     types have one field per enum constant.  Function and method types
-     have one field per parameter.  The base types of C++ classes are
-     also represented as fields.  If the type has no fields, or does not
-     fit into one of these categories, an empty sequence will be
-     returned.
-
-     Each field is a 'gdb.Field' object, with some pre-defined
-     attributes:
-     'bitpos'
-          This attribute is not available for 'enum' or 'static' (as in
-          C++ or Java) fields.  The value is the position, counting in
-          bits, from the start of the containing type.
-
-     'enumval'
-          This attribute is only available for 'enum' fields, and its
-          value is the enumeration member's integer representation.
-
-     'name'
-          The name of the field, or 'None' for anonymous fields.
-
-     'artificial'
-          This is 'True' if the field is artificial, usually meaning
-          that it was provided by the compiler and not the user.  This
-          attribute is always provided, and is 'False' if the field is
-          not artificial.
-
-     'is_base_class'
-          This is 'True' if the field represents a base class of a C++
-          structure.  This attribute is always provided, and is 'False'
-          if the field is not a base class of the type that is the
-          argument of 'fields', or if that type was not a C++ class.
-
-     'bitsize'
-          If the field is packed, or is a bitfield, then this will have
-          a non-zero value, which is the size of the field in bits.
-          Otherwise, this will be zero; in this case the field's size is
-          given by its type.
-
-     'type'
-          The type of the field.  This is usually an instance of 'Type',
-          but it can be 'None' in some situations.
-
-     'parent_type'
-          The type which contains this field.  This is an instance of
-          'gdb.Type'.
-
- -- Function: Type.array (N1 [, N2])
-     Return a new 'gdb.Type' object which represents an array of this
-     type.  If one argument is given, it is the inclusive upper bound of
-     the array; in this case the lower bound is zero.  If two arguments
-     are given, the first argument is the lower bound of the array, and
-     the second argument is the upper bound of the array.  An array's
-     length must not be negative, but the bounds can be.
-
- -- Function: Type.vector (N1 [, N2])
-     Return a new 'gdb.Type' object which represents a vector of this
-     type.  If one argument is given, it is the inclusive upper bound of
-     the vector; in this case the lower bound is zero.  If two arguments
-     are given, the first argument is the lower bound of the vector, and
-     the second argument is the upper bound of the vector.  A vector's
-     length must not be negative, but the bounds can be.
-
-     The difference between an 'array' and a 'vector' is that arrays
-     behave like in C: when used in expressions they decay to a pointer
-     to the first element whereas vectors are treated as first class
-     values.
-
- -- Function: Type.const ()
-     Return a new 'gdb.Type' object which represents a 'const'-qualified
-     variant of this type.
-
- -- Function: Type.volatile ()
-     Return a new 'gdb.Type' object which represents a
-     'volatile'-qualified variant of this type.
-
- -- Function: Type.unqualified ()
-     Return a new 'gdb.Type' object which represents an unqualified
-     variant of this type.  That is, the result is neither 'const' nor
-     'volatile'.
-
- -- Function: Type.range ()
-     Return a Python 'Tuple' object that contains two elements: the low
-     bound of the argument type and the high bound of that type.  If the
-     type does not have a range, GDB will raise a 'gdb.error' exception
-     (*note Exception Handling::).
-
- -- Function: Type.reference ()
-     Return a new 'gdb.Type' object which represents a reference to this
-     type.
-
- -- Function: Type.pointer ()
-     Return a new 'gdb.Type' object which represents a pointer to this
-     type.
-
- -- Function: Type.strip_typedefs ()
-     Return a new 'gdb.Type' that represents the real type, after
-     removing all layers of typedefs.
-
- -- Function: Type.target ()
-     Return a new 'gdb.Type' object which represents the target type of
-     this type.
-
-     For a pointer type, the target type is the type of the pointed-to
-     object.  For an array type (meaning C-like arrays), the target type
-     is the type of the elements of the array.  For a function or method
-     type, the target type is the type of the return value.  For a
-     complex type, the target type is the type of the elements.  For a
-     typedef, the target type is the aliased type.
-
-     If the type does not have a target, this method will throw an
-     exception.
-
- -- Function: Type.template_argument (n [, block])
-     If this 'gdb.Type' is an instantiation of a template, this will
-     return a new 'gdb.Value' or 'gdb.Type' which represents the value
-     of the Nth template argument (indexed starting at 0).
-
-     If this 'gdb.Type' is not a template type, or if the type has fewer
-     than N template arguments, this will throw an exception.
-     Ordinarily, only C++ code will have template types.
-
-     If BLOCK is given, then NAME is looked up in that scope.
-     Otherwise, it is searched for globally.
-
- -- Function: Type.optimized_out ()
-     Return 'gdb.Value' instance of this type whose value is optimized
-     out.  This allows a frame decorator to indicate that the value of
-     an argument or a local variable is not known.
-
-   Each type has a code, which indicates what category this type falls
-into.  The available type categories are represented by constants
-defined in the 'gdb' module:
-
-'gdb.TYPE_CODE_PTR'
-     The type is a pointer.
-
-'gdb.TYPE_CODE_ARRAY'
-     The type is an array.
-
-'gdb.TYPE_CODE_STRUCT'
-     The type is a structure.
-
-'gdb.TYPE_CODE_UNION'
-     The type is a union.
-
-'gdb.TYPE_CODE_ENUM'
-     The type is an enum.
-
-'gdb.TYPE_CODE_FLAGS'
-     A bit flags type, used for things such as status registers.
-
-'gdb.TYPE_CODE_FUNC'
-     The type is a function.
-
-'gdb.TYPE_CODE_INT'
-     The type is an integer type.
-
-'gdb.TYPE_CODE_FLT'
-     A floating point type.
-
-'gdb.TYPE_CODE_VOID'
-     The special type 'void'.
-
-'gdb.TYPE_CODE_SET'
-     A Pascal set type.
-
-'gdb.TYPE_CODE_RANGE'
-     A range type, that is, an integer type with bounds.
-
-'gdb.TYPE_CODE_STRING'
-     A string type.  Note that this is only used for certain languages
-     with language-defined string types; C strings are not represented
-     this way.
-
-'gdb.TYPE_CODE_BITSTRING'
-     A string of bits.  It is deprecated.
-
-'gdb.TYPE_CODE_ERROR'
-     An unknown or erroneous type.
-
-'gdb.TYPE_CODE_METHOD'
-     A method type, as found in C++ or Java.
-
-'gdb.TYPE_CODE_METHODPTR'
-     A pointer-to-member-function.
-
-'gdb.TYPE_CODE_MEMBERPTR'
-     A pointer-to-member.
-
-'gdb.TYPE_CODE_REF'
-     A reference type.
-
-'gdb.TYPE_CODE_CHAR'
-     A character type.
-
-'gdb.TYPE_CODE_BOOL'
-     A boolean type.
-
-'gdb.TYPE_CODE_COMPLEX'
-     A complex float type.
-
-'gdb.TYPE_CODE_TYPEDEF'
-     A typedef to some other type.
-
-'gdb.TYPE_CODE_NAMESPACE'
-     A C++ namespace.
-
-'gdb.TYPE_CODE_DECFLOAT'
-     A decimal floating point type.
-
-'gdb.TYPE_CODE_INTERNAL_FUNCTION'
-     A function internal to GDB.  This is the type used to represent
-     convenience functions.
-
-   Further support for types is provided in the 'gdb.types' Python
-module (*note gdb.types::).
 

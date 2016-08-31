@@ -21,7 +21,7 @@ END-INFO-DIR-ENTRY
    This file documents the GNU debugger GDB.
 
    This is the Tenth Edition, of 'Debugging with GDB: the GNU
-Source-Level Debugger' for GDB (GDB) Version 7.11.1.20160801-git.
+Source-Level Debugger' for GDB (GDB) Version 7.11.90.20160830-git.
 
    Copyright (C) 1988-2016 Free Software Foundation, Inc.
 
@@ -44,7 +44,8 @@ Debugging with GDB
 
 This file describes GDB, the GNU symbolic debugger.
 
-   This is the Tenth Edition, for GDB (GDB) Version 7.11.1.20160801-git.
+   This is the Tenth Edition, for GDB (GDB) Version
+7.11.90.20160830-git.
 
    Copyright (C) 1988-2016 Free Software Foundation, Inc.
 
@@ -491,7 +492,7 @@ Let us use GDB to try to see what is going on.
      There is absolutely no warranty for GDB; type "show warranty"
       for details.
 
-     GDB 7.11.1.20160801-git, Copyright 1999 Free Software Foundation, Inc...
+     GDB 7.11.90.20160830-git, Copyright 1999 Free Software Foundation, Inc...
      (gdb)
 
 GDB reads only enough symbol data to know where to find the rest when
@@ -2060,8 +2061,10 @@ inferior-tty'.
 the name of the terminal that will be used for future runs of your
 program.
 
-'set inferior-tty /dev/ttyb'
-     Set the tty for the program being debugged to /dev/ttyb.
+'set inferior-tty [ TTY ]'
+     Set the tty for the program being debugged to TTY.  Omitting TTY
+     restores the default behavior, which is to use the same terminal as
+     GDB.
 
 'show inferior-tty'
      Show the current tty for the program being debugged.
@@ -3625,7 +3628,7 @@ shared library.  Use the 'catch' command to set a catchpoint.
           A call to 'exec'.
 
      'syscall'
-     'syscall [NAME | NUMBER] ...'
+     'syscall [NAME | NUMBER | group:GROUPNAME | g:GROUPNAME] ...'
           A call to or return from a system call, a.k.a. "syscall".  A
           syscall is a mechanism for application programs to request a
           service from the operating system (OS) or one of the OS system
@@ -3652,6 +3655,15 @@ shared library.  Use the 'catch' command to set a catchpoint.
           directly may be useful if GDB's database does not have the
           complete list of syscalls on your system (e.g., because GDB
           lags behind the OS upgrades).
+
+          You may specify a group of related syscalls to be caught at
+          once using the 'group:' syntax ('g:' is a shorter equivalent).
+          For instance, on some platforms GDB allows you to catch all
+          network related syscalls, by passing the argument
+          'group:network' to 'catch syscall'.  Note that not all syscall
+          groups are available in every system.  You can use the command
+          completion facilities (*note command completion: Completion.)
+          to list the syscall groups available on your environment.
 
           The example below illustrates how this command works if you
           don't provide arguments to it:
@@ -3702,6 +3714,21 @@ shared library.  Use the 'catch' command to set a catchpoint.
 
                Program exited normally.
                (gdb)
+
+          Here is an example of catching a syscall group:
+
+               (gdb) catch syscall group:process
+               Catchpoint 1 (syscalls 'exit' [1] 'fork' [2] 'waitpid' [7]
+               'execve' [11] 'wait4' [114] 'clone' [120] 'vfork' [190]
+               'exit_group' [252] 'waitid' [284] 'unshare' [310])
+               (gdb) r
+               Starting program: /tmp/catch-syscall
+
+               Catchpoint 1 (call to syscall fork), 0x00007ffff7df4e27 in open64 ()
+                  from /lib64/ld-linux-x86-64.so.2
+
+               (gdb) c
+               Continuing.
 
           However, there can be situations when there is no
           corresponding name in XML file for that syscall number.  In
@@ -4631,7 +4658,8 @@ File: gdb.info,  Node: Skipping Over Functions and Files,  Next: Signals,  Prev:
 
 The program you are debugging may contain some functions which are
 uninteresting to debug.  The 'skip' command lets you tell GDB to skip a
-function or all functions in a file when stepping.
+function, all functions in a file or a particular function in a
+particular file when stepping.
 
    For example, consider the following C function:
 
@@ -4654,10 +4682,63 @@ called from many places.
 GDB never to step into 'boring'.  Now when you execute 'step' at line
 103, you'll step over 'boring' and directly into 'foo'.
 
-   You can also instruct GDB to skip all functions in a file, with, for
-example, 'skip file boring.c'.
+   Functions may be skipped by providing either a function name,
+linespec (*note Specify Location::), regular expression that matches the
+function's name, file name or a 'glob'-style pattern that matches the
+file name.
 
-'skip [LINESPEC]'
+   On Posix systems the form of the regular expression is "Extended
+Regular Expressions".  See for example 'man 7 regex' on GNU/Linux
+systems.  On non-Posix systems the form of the regular expression is
+whatever is provided by the 'regcomp' function of the underlying system.
+See for example 'man 7 glob' on GNU/Linux systems for a description of
+'glob'-style patterns.
+
+'skip [OPTIONS]'
+     The basic form of the 'skip' command takes zero or more options
+     that specify what to skip.  The OPTIONS argument is any useful
+     combination of the following:
+
+     '-file FILE'
+     '-fi FILE'
+          Functions in FILE will be skipped over when stepping.
+
+     '-gfile FILE-GLOB-PATTERN'
+     '-gfi FILE-GLOB-PATTERN'
+          Functions in files matching FILE-GLOB-PATTERN will be skipped
+          over when stepping.
+
+               (gdb) skip -gfi utils/*.c
+
+     '-function LINESPEC'
+     '-fu LINESPEC'
+          Functions named by LINESPEC or the function containing the
+          line named by LINESPEC will be skipped over when stepping.
+          *Note Specify Location::.
+
+     '-rfunction REGEXP'
+     '-rfu REGEXP'
+          Functions whose name matches REGEXP will be skipped over when
+          stepping.
+
+          This form is useful for complex function names.  For example,
+          there is generally no need to step into C++ 'std::string'
+          constructors or destructors.  Plus with C++ templates it can
+          be hard to write out the full name of the function, and often
+          it doesn't matter what the template arguments are.  Specifying
+          the function to be skipped as a regular expression makes this
+          easier.
+
+               (gdb) skip -rfu ^std::(allocator|basic_string)<.*>::~?\1 *\(
+
+          If you want to skip every templated C++ constructor and
+          destructor in the 'std' namespace you can do:
+
+               (gdb) skip -rfu ^std::([a-zA-z0-9_]+)<.*>::~?\1 *\(
+
+     If no options are specified, the function you're currently
+     debugging will be skipped.
+
 'skip function [LINESPEC]'
      After running this command, the function named by LINESPEC or the
      function containing the line named by LINESPEC will be skipped over
@@ -4673,6 +4754,9 @@ example, 'skip file boring.c'.
      After running this command, any function whose source lives in
      FILENAME will be skipped over when stepping.
 
+          (gdb) skip file boring.c
+          File boring.c will be skipped when stepping.
+
      If you do not specify FILENAME, functions whose source lives in the
      file you're currently debugging will be skipped.
 
@@ -4687,23 +4771,21 @@ breakpoints.  These are the commands for managing your list of skips:
 
      _Identifier_
           A number identifying this skip.
-     _Type_
-          The type of this skip, either 'function' or 'file'.
      _Enabled or Disabled_
           Enabled skips are marked with 'y'.  Disabled skips are marked
           with 'n'.
-     _Address_
-          For function skips, this column indicates the address in
-          memory of the function being skipped.  If you've set a
-          function skip on a function which has not yet been loaded,
-          this field will contain '<PENDING>'.  Once a shared library
-          which has the function is loaded, 'info skip' will show the
-          function's address here.
-     _What_
-          For file skips, this field contains the filename being
-          skipped.  For functions skips, this field contains the
-          function name and its line number in the file where it is
-          defined.
+     _Glob_
+          If the file name is a 'glob' pattern this is 'y'.  Otherwise
+          it is 'n'.
+     _File_
+          The name or 'glob' pattern of the file to be skipped.  If no
+          file is specified this is '<none>'.
+     _RE_
+          If the function name is a 'regular expression' this is 'y'.
+          Otherwise it is 'n'.
+     _Function_
+          The name or regular expression of the function to skip.  If no
+          function is specified this is '<none>'.
 
 'skip delete [RANGE]'
      Delete the specified skip(s).  If RANGE is not specified, delete
@@ -4913,6 +4995,26 @@ referenced address that raised a segmentation fault.
      $1 = (void *) 0x7ffff7ff7000
 
    Depending on target support, '$_siginfo' may also be writable.
+
+   On some targets, a 'SIGSEGV' can be caused by a boundary violation,
+i.e., accessing an address outside of the allowed range.  In those cases
+GDB may displays additional information, depending on how GDB has been
+told to handle the signal.  With 'handle stop SIGSEGV', GDB displays the
+violation kind: "Upper" or "Lower", the memory address accessed and the
+bounds, while with 'handle nostop SIGSEGV' no additional information is
+displayed.
+
+   The usual output of a segfault is:
+     Program received signal SIGSEGV, Segmentation fault
+     0x0000000000400d7c in upper () at i386-mpx-sigsegv.c:68
+     68        value = *(p + len);
+
+   While a bound violation is presented as:
+     Program received signal SIGSEGV, Segmentation fault
+     Upper bound violation while accessing address 0x7fffffffc3b3
+     Bounds: [lower = 0x7fffffffc390, upper = 0x7fffffffc3a3]
+     0x0000000000400d7c in upper () at i386-mpx-sigsegv.c:68
+     68        value = *(p + len);
 
 
 File: gdb.info,  Node: Thread Stops,  Prev: Signals,  Up: Stopping
@@ -5496,7 +5598,10 @@ GDB provides the following commands:
           not record data.  Further, the data is collected in a ring
           buffer so old data will be overwritten when the buffer is
           full.  It allows limited reverse execution.  Variables and
-          registers are not available during reverse execution.
+          registers are not available during reverse execution.  In
+          remote debugging, recording continues on disconnect.  Recorded
+          data can be inspected after reconnecting.  The recording may
+          be stopped using 'record stop'.
 
           The recording format can be specified as parameter.  Without a
           parameter the command chooses the recording format.  The
@@ -6898,248 +7003,4 @@ versions of source.  You can correct the situation as follows:
   2. Use 'directory' with suitable arguments to reinstall the
      directories you want in the source path.  You can add all the
      directories in one command.
-
-
-File: gdb.info,  Node: Machine Code,  Prev: Source Path,  Up: Source
-
-9.6 Source and Machine Code
-===========================
-
-You can use the command 'info line' to map source lines to program
-addresses (and vice versa), and the command 'disassemble' to display a
-range of addresses as machine instructions.  You can use the command
-'set disassemble-next-line' to set whether to disassemble next source
-line when execution stops.  When run under GNU Emacs mode, the 'info
-line' command causes the arrow to point to the line specified.  Also,
-'info line' prints addresses in symbolic form as well as hex.
-
-'info line LOCATION'
-     Print the starting and ending addresses of the compiled code for
-     source line LOCATION.  You can specify source lines in any of the
-     ways documented in *note Specify Location::.
-
-   For example, we can use 'info line' to discover the location of the
-object code for the first line of function 'm4_changequote':
-
-     (gdb) info line m4_changequote
-     Line 895 of "builtin.c" starts at pc 0x634c and ends at 0x6350.
-
-We can also inquire (using '*ADDR' as the form for LOCATION) what source
-line covers a particular address:
-     (gdb) info line *0x63ff
-     Line 926 of "builtin.c" starts at pc 0x63e4 and ends at 0x6404.
-
-   After 'info line', the default address for the 'x' command is changed
-to the starting address of the line, so that 'x/i' is sufficient to
-begin examining the machine code (*note Examining Memory: Memory.).
-Also, this address is saved as the value of the convenience variable
-'$_' (*note Convenience Variables: Convenience Vars.).
-
-'disassemble'
-'disassemble /m'
-'disassemble /s'
-'disassemble /r'
-     This specialized command dumps a range of memory as machine
-     instructions.  It can also print mixed source+disassembly by
-     specifying the '/m' or '/s' modifier and print the raw instructions
-     in hex as well as in symbolic form by specifying the '/r' modifier.
-     The default memory range is the function surrounding the program
-     counter of the selected frame.  A single argument to this command
-     is a program counter value; GDB dumps the function surrounding this
-     value.  When two arguments are given, they should be separated by a
-     comma, possibly surrounded by whitespace.  The arguments specify a
-     range of addresses to dump, in one of two forms:
-
-     'START,END'
-          the addresses from START (inclusive) to END (exclusive)
-     'START,+LENGTH'
-          the addresses from START (inclusive) to 'START+LENGTH'
-          (exclusive).
-
-     When 2 arguments are specified, the name of the function is also
-     printed (since there could be several functions in the given
-     range).
-
-     The argument(s) can be any expression yielding a numeric value,
-     such as '0x32c4', '&main+10' or '$pc - 8'.
-
-     If the range of memory being disassembled contains current program
-     counter, the instruction at that location is shown with a '=>'
-     marker.
-
-   The following example shows the disassembly of a range of addresses
-of HP PA-RISC 2.0 code:
-
-     (gdb) disas 0x32c4, 0x32e4
-     Dump of assembler code from 0x32c4 to 0x32e4:
-        0x32c4 <main+204>:      addil 0,dp
-        0x32c8 <main+208>:      ldw 0x22c(sr0,r1),r26
-        0x32cc <main+212>:      ldil 0x3000,r31
-        0x32d0 <main+216>:      ble 0x3f8(sr4,r31)
-        0x32d4 <main+220>:      ldo 0(r31),rp
-        0x32d8 <main+224>:      addil -0x800,dp
-        0x32dc <main+228>:      ldo 0x588(r1),r26
-        0x32e0 <main+232>:      ldil 0x3000,r31
-     End of assembler dump.
-
-   Here is an example showing mixed source+assembly for Intel x86 with
-'/m' or '/s', when the program is stopped just after function prologue
-in a non-optimized function with no inline code.
-
-     (gdb) disas /m main
-     Dump of assembler code for function main:
-     5       {
-        0x08048330 <+0>:    push   %ebp
-        0x08048331 <+1>:    mov    %esp,%ebp
-        0x08048333 <+3>:    sub    $0x8,%esp
-        0x08048336 <+6>:    and    $0xfffffff0,%esp
-        0x08048339 <+9>:    sub    $0x10,%esp
-
-     6         printf ("Hello.\n");
-     => 0x0804833c <+12>:   movl   $0x8048440,(%esp)
-        0x08048343 <+19>:   call   0x8048284 <puts@plt>
-
-     7         return 0;
-     8       }
-        0x08048348 <+24>:   mov    $0x0,%eax
-        0x0804834d <+29>:   leave
-        0x0804834e <+30>:   ret
-
-     End of assembler dump.
-
-   The '/m' option is deprecated as its output is not useful when there
-is either inlined code or re-ordered code.  The '/s' option is the
-preferred choice.  Here is an example for AMD x86-64 showing the
-difference between '/m' output and '/s' output.  This example has one
-inline function defined in a header file, and the code is compiled with
-'-O2' optimization.  Note how the '/m' output is missing the disassembly
-of several instructions that are present in the '/s' output.
-
-   'foo.h':
-
-     int
-     foo (int a)
-     {
-       if (a < 0)
-         return a * 2;
-       if (a == 0)
-         return 1;
-       return a + 10;
-     }
-
-   'foo.c':
-
-     #include "foo.h"
-     volatile int x, y;
-     int
-     main ()
-     {
-       x = foo (y);
-       return 0;
-     }
-
-     (gdb) disas /m main
-     Dump of assembler code for function main:
-     5	{
-
-     6	  x = foo (y);
-        0x0000000000400400 <+0>:	mov    0x200c2e(%rip),%eax # 0x601034 <y>
-        0x0000000000400417 <+23>:	mov    %eax,0x200c13(%rip) # 0x601030 <x>
-
-     7	  return 0;
-     8	}
-        0x000000000040041d <+29>:	xor    %eax,%eax
-        0x000000000040041f <+31>:	retq
-        0x0000000000400420 <+32>:	add    %eax,%eax
-        0x0000000000400422 <+34>:	jmp    0x400417 <main+23>
-
-     End of assembler dump.
-     (gdb) disas /s main
-     Dump of assembler code for function main:
-     foo.c:
-     5	{
-     6	  x = foo (y);
-        0x0000000000400400 <+0>:	mov    0x200c2e(%rip),%eax # 0x601034 <y>
-
-     foo.h:
-     4	  if (a < 0)
-        0x0000000000400406 <+6>:	test   %eax,%eax
-        0x0000000000400408 <+8>:	js     0x400420 <main+32>
-
-     6	  if (a == 0)
-     7	    return 1;
-     8	  return a + 10;
-        0x000000000040040a <+10>:	lea    0xa(%rax),%edx
-        0x000000000040040d <+13>:	test   %eax,%eax
-        0x000000000040040f <+15>:	mov    $0x1,%eax
-        0x0000000000400414 <+20>:	cmovne %edx,%eax
-
-     foo.c:
-     6	  x = foo (y);
-        0x0000000000400417 <+23>:	mov    %eax,0x200c13(%rip) # 0x601030 <x>
-
-     7	  return 0;
-     8	}
-        0x000000000040041d <+29>:	xor    %eax,%eax
-        0x000000000040041f <+31>:	retq
-
-     foo.h:
-     5	    return a * 2;
-        0x0000000000400420 <+32>:	add    %eax,%eax
-        0x0000000000400422 <+34>:	jmp    0x400417 <main+23>
-     End of assembler dump.
-
-   Here is another example showing raw instructions in hex for AMD
-x86-64,
-
-     (gdb) disas /r 0x400281,+10
-     Dump of assembler code from 0x400281 to 0x40028b:
-        0x0000000000400281:  38 36  cmp    %dh,(%rsi)
-        0x0000000000400283:  2d 36 34 2e 73 sub    $0x732e3436,%eax
-        0x0000000000400288:  6f     outsl  %ds:(%rsi),(%dx)
-        0x0000000000400289:  2e 32 00       xor    %cs:(%rax),%al
-     End of assembler dump.
-
-   Addresses cannot be specified as a location (*note Specify
-Location::).  So, for example, if you want to disassemble function 'bar'
-in file 'foo.c', you must type 'disassemble 'foo.c'::bar' and not
-'disassemble foo.c:bar'.
-
-   Some architectures have more than one commonly-used set of
-instruction mnemonics or other syntax.
-
-   For programs that were dynamically linked and use shared libraries,
-instructions that call functions or branch to locations in the shared
-libraries might show a seemingly bogus location--it's actually a
-location of the relocation table.  On some architectures, GDB might be
-able to resolve these to actual function names.
-
-'set disassembly-flavor INSTRUCTION-SET'
-     Select the instruction set to use when disassembling the program
-     via the 'disassemble' or 'x/i' commands.
-
-     Currently this command is only defined for the Intel x86 family.
-     You can set INSTRUCTION-SET to either 'intel' or 'att'.  The
-     default is 'att', the AT&T flavor used by default by Unix
-     assemblers for x86-based targets.
-
-'show disassembly-flavor'
-     Show the current setting of the disassembly flavor.
-
-'set disassemble-next-line'
-'show disassemble-next-line'
-     Control whether or not GDB will disassemble the next source line or
-     instruction when execution stops.  If ON, GDB will display
-     disassembly of the next source line when execution of the program
-     being debugged stops.  This is _in addition_ to displaying the
-     source line itself, which GDB always does if possible.  If the next
-     source line cannot be displayed for some reason (e.g., if GDB
-     cannot find the source file, or there's no line info in the debug
-     info), GDB will display disassembly of the next _instruction_
-     instead of showing the next source line.  If AUTO, GDB will display
-     disassembly of next instruction only if the source line cannot be
-     displayed.  This setting causes GDB to display some feedback when
-     you step through a function with no line info or whose source file
-     is unavailable.  The default is OFF, which means never display the
-     disassembly of the next line or instruction.
 

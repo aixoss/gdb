@@ -31,6 +31,7 @@
 #include "arch-utils.h"
 #include "language.h"
 #include "location.h"
+#include "py-event.h"
 
 /* Number of live breakpoints.  */
 static int bppy_live;
@@ -392,7 +393,7 @@ bppy_get_location (PyObject *self, void *closure)
   str = event_location_to_string (obj->bp->location);
   if (! str)
     str = "";
-  return PyString_Decode (str, strlen (str), host_charset (), NULL);
+  return host_string_to_python_string (str);
 }
 
 /* Python function to get the breakpoint expression.  */
@@ -414,7 +415,7 @@ bppy_get_expression (PyObject *self, void *closure)
   if (! str)
     str = "";
 
-  return PyString_Decode (str, strlen (str), host_charset (), NULL);
+  return host_string_to_python_string (str);
 }
 
 /* Python function to get the condition expression of a breakpoint.  */
@@ -430,7 +431,7 @@ bppy_get_condition (PyObject *self, void *closure)
   if (! str)
     Py_RETURN_NONE;
 
-  return PyString_Decode (str, strlen (str), host_charset (), NULL);
+  return host_string_to_python_string (str);
 }
 
 /* Returns 0 on success.  Returns -1 on error, with a python exception set.
@@ -515,7 +516,7 @@ bppy_get_commands (PyObject *self, void *closure)
   ui_out_redirect (current_uiout, NULL);
   cmdstr = ui_file_xstrdup (string_file, &length);
   make_cleanup (xfree, cmdstr);
-  result = PyString_Decode (cmdstr, strlen (cmdstr), host_charset (), NULL);
+  result = host_string_to_python_string (cmdstr);
   do_cleanups (chain);
   return result;
 }
@@ -540,10 +541,10 @@ bppy_get_visibility (PyObject *self, void *closure)
 
   BPPY_REQUIRE_VALID (self_bp);
 
-  if (self_bp->bp->number < 0)
-    Py_RETURN_FALSE;
+  if (user_breakpoint_p (self_bp->bp))
+    Py_RETURN_TRUE;
 
-  Py_RETURN_TRUE;
+  Py_RETURN_FALSE;
 }
 
 /* Python function to determine if the breakpoint is a temporary
@@ -558,6 +559,24 @@ bppy_get_temporary (PyObject *self, void *closure)
 
   if (self_bp->bp->disposition == disp_del
       || self_bp->bp->disposition == disp_del_at_next_stop)
+    Py_RETURN_TRUE;
+
+  Py_RETURN_FALSE;
+}
+
+/* Python function to determine if the breakpoint is a pending
+   breakpoint.  */
+
+static PyObject *
+bppy_get_pending (PyObject *self, void *closure)
+{
+  gdbpy_breakpoint_object *self_bp = (gdbpy_breakpoint_object *) self;
+
+  BPPY_REQUIRE_VALID (self_bp);
+
+  if (is_watchpoint (self_bp->bp))
+    Py_RETURN_FALSE;
+  if (pending_breakpoint_p (self_bp->bp))
     Py_RETURN_TRUE;
 
   Py_RETURN_FALSE;
@@ -705,6 +724,7 @@ bppy_init (PyObject *self, PyObject *args, PyObject *kwargs)
     }
   CATCH (except, RETURN_MASK_ALL)
     {
+      bppy_pending_object = NULL;
       PyErr_Format (except.reason == RETURN_QUIT
 		    ? PyExc_KeyboardInterrupt : PyExc_RuntimeError,
 		    "%s", except.message);
@@ -746,13 +766,13 @@ gdbpy_breakpoints (PyObject *self, PyObject *args)
   PyObject *list, *tuple;
 
   if (bppy_live == 0)
-    Py_RETURN_NONE;
+    return PyTuple_New (0);
 
   list = PyList_New (0);
   if (!list)
     return NULL;
 
-  /* If iteratre_over_breakpoints returns non NULL it signals an error
+  /* If iterate_over_breakpoints returns non NULL it signals an error
      condition.  In that case abandon building the list and return
      NULL.  */
   if (iterate_over_breakpoints (build_bp_list, list) != NULL)
@@ -862,7 +882,7 @@ gdbpy_breakpoint_created (struct breakpoint *bp)
   gdbpy_breakpoint_object *newbp;
   PyGILState_STATE state;
 
-  if (bp->number < 0 && bppy_pending_object == NULL)
+  if (!user_breakpoint_p (bp) && bppy_pending_object == NULL)
     return;
 
   if (bp->type != bp_breakpoint
@@ -897,6 +917,14 @@ gdbpy_breakpoint_created (struct breakpoint *bp)
       gdbpy_print_stack ();
     }
 
+  if (!evregpy_no_listeners_p (gdb_py_events.breakpoint_created))
+    {
+      Py_INCREF (newbp);
+      if (evpy_emit_event ((PyObject *) newbp,
+			   gdb_py_events.breakpoint_created) < 0)
+	gdbpy_print_stack ();
+    }
+
   PyGILState_Release (state);
 }
 
@@ -917,9 +945,48 @@ gdbpy_breakpoint_deleted (struct breakpoint *b)
       bp_obj = bp->py_bp_object;
       if (bp_obj)
 	{
+	  if (!evregpy_no_listeners_p (gdb_py_events.breakpoint_deleted))
+	    {
+	      PyObject *bp_obj_alias = (PyObject *) bp_obj;
+
+	      Py_INCREF (bp_obj_alias);
+	      if (evpy_emit_event (bp_obj_alias,
+				   gdb_py_events.breakpoint_deleted) < 0)
+		gdbpy_print_stack ();
+	    }
+
 	  bp_obj->bp = NULL;
 	  --bppy_live;
 	  Py_DECREF (bp_obj);
+	}
+    }
+  PyGILState_Release (state);
+}
+
+/* Callback that is used when a breakpoint is modified.  */
+
+static void
+gdbpy_breakpoint_modified (struct breakpoint *b)
+{
+  int num = b->number;
+  PyGILState_STATE state;
+  struct breakpoint *bp = NULL;
+  gdbpy_breakpoint_object *bp_obj;
+
+  state = PyGILState_Ensure ();
+  bp = get_breakpoint (num);
+  if (bp)
+    {
+      PyObject *bp_obj = (PyObject *) bp->py_bp_object;
+      if (bp_obj)
+	{
+	  if (!evregpy_no_listeners_p (gdb_py_events.breakpoint_modified))
+	    {
+	      Py_INCREF (bp_obj);
+	      if (evpy_emit_event (bp_obj,
+				   gdb_py_events.breakpoint_modified) < 0)
+		gdbpy_print_stack ();
+	    }
 	}
     }
   PyGILState_Release (state);
@@ -943,6 +1010,7 @@ gdbpy_initialize_breakpoints (void)
 
   observer_attach_breakpoint_created (gdbpy_breakpoint_created);
   observer_attach_breakpoint_deleted (gdbpy_breakpoint_deleted);
+  observer_attach_breakpoint_modified (gdbpy_breakpoint_modified);
 
   /* Add breakpoint types constants.  */
   for (i = 0; pybp_codes[i].name; ++i)
@@ -1053,6 +1121,8 @@ or None if no condition set."},
     "Whether the breakpoint is visible to the user."},
   { "temporary", bppy_get_temporary, NULL,
     "Whether this breakpoint is a temporary breakpoint."},
+  { "pending", bppy_get_pending, NULL,
+    "Whether this breakpoint is a pending breakpoint."},
   { NULL }  /* Sentinel.  */
 };
 

@@ -593,6 +593,7 @@ ac_subst_vars='LTLIBOBJS
 LIBOBJS
 GCORE_TRANSFORM_NAME
 GDB_TRANSFORM_NAME
+XSLTPROC
 GDB_NM_FILE
 LTLIBBABELTRACE
 LIBBABELTRACE
@@ -1502,7 +1503,8 @@ Optional Features:
 			  (and sometimes confusing) to the casual installer
   --enable-plugins        Enable support for plugins
   --disable-largefile     omit support for large files
-  --enable-build-with-cxx build with C++ compiler instead of C compiler
+  --disable-build-with-cxx
+                          build with C compiler instead of C++ compiler
   --enable-targets=TARGETS
                           alternative target configurations
   --enable-64-bit-bfd     64-bit support (on hosts with narrower word sizes)
@@ -2401,51 +2403,6 @@ $as_echo "$ac_res" >&6; }
   eval $as_lineno_stack; test "x$as_lineno_stack" = x && { as_lineno=; unset as_lineno;}
 
 } # ac_fn_c_check_member
-
-# ac_fn_cxx_check_decl LINENO SYMBOL VAR
-# --------------------------------------
-# Tests whether SYMBOL is declared, setting cache variable VAR accordingly.
-ac_fn_cxx_check_decl ()
-{
-  as_lineno=${as_lineno-"$1"} as_lineno_stack=as_lineno_stack=$as_lineno_stack
-  as_decl_name=`echo $2|sed 's/ *(.*//'`
-  as_decl_use=`echo $2|sed -e 's/(/((/' -e 's/)/) 0&/' -e 's/,/) 0& (/g'`
-  { $as_echo "$as_me:${as_lineno-$LINENO}: checking whether $as_decl_name is declared" >&5
-$as_echo_n "checking whether $as_decl_name is declared... " >&6; }
-if { as_var=$3; eval "test \"\${$as_var+set}\" = set"; }; then :
-  $as_echo_n "(cached) " >&6
-else
-  cat confdefs.h - <<_ACEOF >conftest.$ac_ext
-/* end confdefs.h.  */
-$4
-int
-main ()
-{
-#ifndef $as_decl_name
-#ifdef __cplusplus
-  (void) $as_decl_use;
-#else
-  (void) $as_decl_name;
-#endif
-#endif
-
-  ;
-  return 0;
-}
-_ACEOF
-if ac_fn_cxx_try_compile "$LINENO"; then :
-  eval "$3=yes"
-else
-  eval "$3=no"
-fi
-rm -f core conftest.err conftest.$ac_objext conftest.$ac_ext
-fi
-eval ac_res=\$$3
-	       { $as_echo "$as_me:${as_lineno-$LINENO}: result: $ac_res" >&5
-$as_echo "$ac_res" >&6; }
-  eval $as_lineno_stack; test "x$as_lineno_stack" = x && { as_lineno=; unset as_lineno;}
-
-} # ac_fn_cxx_check_decl
 cat >config.log <<_ACEOF
 This file contains any messages produced by compilers while
 running configure, to aid debugging if configure makes a mistake.
@@ -5010,7 +4967,7 @@ if test "${enable_build_with_cxx+set}" = set; then :
 	  as_fn_error "bad value $enableval for --enable-build-with-cxx" "$LINENO" 5 ;;
     esac
 else
-  enable_build_with_cxx=no
+  enable_build_with_cxx=yes
 fi
 
 
@@ -7095,6 +7052,7 @@ fi
 
 
 # On FreeBSD we may need libutil for kinfo_getvmmap (used by fbsd-nat.c).
+# On GNU/kFreeBSD systems, FreeBSD libutil is renamed to libutil-freebsd.
 { $as_echo "$as_me:${as_lineno-$LINENO}: checking for library containing kinfo_getvmmap" >&5
 $as_echo_n "checking for library containing kinfo_getvmmap... " >&6; }
 if test "${ac_cv_search_kinfo_getvmmap+set}" = set; then :
@@ -7119,7 +7077,7 @@ return kinfo_getvmmap ();
   return 0;
 }
 _ACEOF
-for ac_lib in '' util; do
+for ac_lib in '' util util-freebsd; do
   if test -z "$ac_lib"; then
     ac_res="none required"
   else
@@ -9457,6 +9415,14 @@ else
   CONFIG_OBS="$CONFIG_OBS python.o"
   CONFIG_SRCS="$CONFIG_SRCS python/python.c"
 fi
+
+# Work around Python http://bugs.python.org/issue10112.  See also
+# http://bugs.python.org/issue11410, otherwise -Wl,--dynamic-list has
+# no effect.  Note that the only test after this that uses Python is
+# the -rdynamic/-Wl,--dynamic-list test, and we do want that one to be
+# run without -export-dynamic too.
+PYTHON_LIBS=`echo $PYTHON_LIBS | sed -e 's/-Xlinker -export-dynamic//'`
+
 
 
 
@@ -12278,7 +12244,7 @@ fi
 done
 
 
-  for ac_func in fdwalk getrlimit pipe pipe2 socketpair
+  for ac_func in fdwalk getrlimit pipe pipe2 socketpair sigaction
 do :
   as_ac_var=`$as_echo "ac_cv_func_$ac_func" | $as_tr_sh`
 ac_fn_c_check_func "$LINENO" "$ac_func" "$as_ac_var"
@@ -12351,7 +12317,6 @@ fi
 # Check the return and argument types of ptrace.
 
 
-
 for ac_header in sys/ptrace.h ptrace.h
 do :
   as_ac_Header=`$as_echo "ac_cv_header_$ac_header" | $as_tr_sh`
@@ -12367,17 +12332,6 @@ fi
 done
 
 
-# Needs to be tested in C++ mode, to detect whether we need to cast
-# the first argument to enum __ptrace_request.
-if test "$enable_build_with_cxx" = "yes"; then
-    ac_ext=cpp
-ac_cpp='$CXXCPP $CPPFLAGS'
-ac_compile='$CXX -c $CXXFLAGS $CPPFLAGS conftest.$ac_ext >&5'
-ac_link='$CXX -o conftest$ac_exeext $CXXFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
-ac_compiler_gnu=$ac_cv_cxx_compiler_gnu
-
-fi
-
 gdb_ptrace_headers='
 #include <sys/types.h>
 #if HAVE_SYS_PTRACE_H
@@ -12388,7 +12342,7 @@ gdb_ptrace_headers='
 #endif
 '
 # There is no point in checking if we don't have a prototype.
-ac_fn_cxx_check_decl "$LINENO" "ptrace" "ac_cv_have_decl_ptrace" "$gdb_ptrace_headers
+ac_fn_c_check_decl "$LINENO" "ptrace" "ac_cv_have_decl_ptrace" "$gdb_ptrace_headers
 "
 if test "x$ac_cv_have_decl_ptrace" = x""yes; then :
   ac_have_decl=1
@@ -12426,7 +12380,7 @@ extern long ptrace (enum __ptrace_request, ...);
   return 0;
 }
 _ACEOF
-if ac_fn_cxx_try_compile "$LINENO"; then :
+if ac_fn_c_try_compile "$LINENO"; then :
   gdb_cv_func_ptrace_ret='long'
 else
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
@@ -12440,7 +12394,7 @@ extern int ptrace ();
   return 0;
 }
 _ACEOF
-if ac_fn_cxx_try_compile "$LINENO"; then :
+if ac_fn_c_try_compile "$LINENO"; then :
   gdb_cv_func_ptrace_ret='int'
 else
   gdb_cv_func_ptrace_ret='long'
@@ -12474,7 +12428,7 @@ extern long ptrace (enum __ptrace_request, ...);
   return 0;
 }
 _ACEOF
-if ac_fn_cxx_try_compile "$LINENO"; then :
+if ac_fn_c_try_compile "$LINENO"; then :
   gdb_cv_func_ptrace_args='enum __ptrace_request,int,long,long'
 else
 
@@ -12496,7 +12450,7 @@ extern $gdb_cv_func_ptrace_ret
   return 0;
 }
 _ACEOF
-if ac_fn_cxx_try_compile "$LINENO"; then :
+if ac_fn_c_try_compile "$LINENO"; then :
   gdb_cv_func_ptrace_args="$gdb_arg1,$gdb_arg2,$gdb_arg3,$gdb_arg4";
     break 4;
 fi
@@ -12516,7 +12470,7 @@ extern $gdb_cv_func_ptrace_ret
   return 0;
 }
 _ACEOF
-if ac_fn_cxx_try_compile "$LINENO"; then :
+if ac_fn_c_try_compile "$LINENO"; then :
 
 gdb_cv_func_ptrace_args="$gdb_arg1,$gdb_arg2,$gdb_arg3,$gdb_arg4,$gdb_arg5";
     break 5;
@@ -12559,15 +12513,6 @@ if test -n "$5"; then
 cat >>confdefs.h <<_ACEOF
 #define PTRACE_TYPE_ARG5 $5
 _ACEOF
-
-fi
-
-if test "$enable_build_with_cxx" = "yes"; then
-    ac_ext=c
-ac_cpp='$CPP $CPPFLAGS'
-ac_compile='$CC -c $CFLAGS $CPPFLAGS conftest.$ac_ext >&5'
-ac_link='$CC -o conftest$ac_exeext $CFLAGS $CPPFLAGS $LDFLAGS conftest.$ac_ext $LIBS >&5'
-ac_compiler_gnu=$ac_cv_c_compiler_gnu
 
 fi
 
@@ -12983,6 +12928,20 @@ _ACEOF
 
 fi
 
+
+# See if <sys/ptrace.h> supports syscall fields on FreeBSD.  The
+# pl_syscall_code member of `struct ptrace_lwpinfo' was added in
+# FreeBSD 10.3.
+ac_fn_c_check_member "$LINENO" "struct ptrace_lwpinfo" "pl_syscall_code" "ac_cv_member_struct_ptrace_lwpinfo_pl_syscall_code" "#include <sys/ptrace.h>
+"
+if test "x$ac_cv_member_struct_ptrace_lwpinfo_pl_syscall_code" = x""yes; then :
+
+cat >>confdefs.h <<_ACEOF
+#define HAVE_STRUCT_PTRACE_LWPINFO_PL_SYSCALL_CODE 1
+_ACEOF
+
+
+fi
 
 
 # Detect which type of /proc is in use, such as for Solaris.
@@ -13771,16 +13730,24 @@ rm -f core conftest.err conftest.$ac_objext \
      # libpythonX.Y.a would get its symbols required for
      # pythonX.Y/lib-dynload/*.so modules hidden by -Wl,--dynamic-list.
      # Problem does not happen for the recommended libpythonX.Y.so linkage.
+
+     # Note the workaround for Python
+     # http://bugs.python.org/issue10112 earlier has removed
+     # -export-dynamic from PYTHON_LIBS.  That's exactly what we want
+     # here too, as otherwise it'd make this -Wl,--dynamic-list test
+     # always pass.
      old_CFLAGS="$CFLAGS"
      CFLAGS="$CFLAGS $PYTHON_CFLAGS"
      old_LIBS="$LIBS"
      LIBS="$LIBS $PYTHON_LIBS"
+     old_CPPFLAGS="$CPPFLAGS"
+     CPPFLAGS="$CPPFLAGS $PYTHON_CPPFLAGS"
      if test "$cross_compiling" = yes; then :
   true
 else
   cat confdefs.h - <<_ACEOF >conftest.$ac_ext
 /* end confdefs.h.  */
-#include "${have_libpython}/Python.h"
+#include "Python.h"
 int
 main ()
 {
@@ -13802,6 +13769,7 @@ fi
 
      LIBS="$old_LIBS"
      CFLAGS="$old_CFLAGS"
+     CPPFLAGS="$old_CPPFLAGS"
    fi
    LDFLAGS="$old_LDFLAGS"
 fi
@@ -14265,6 +14233,7 @@ _ACEOF
 
 
 
+
 # Check whether --enable-werror was given.
 if test "${enable_werror+set}" = set; then :
   enableval=$enable_werror; case "${enableval}" in
@@ -14289,7 +14258,7 @@ fi
 build_warnings="-Wall -Wpointer-arith \
 -Wno-unused -Wunused-value -Wunused-function \
 -Wno-switch -Wno-char-subscripts \
--Wempty-body"
+-Wempty-body -Wunused-but-set-parameter -Wunused-but-set-variable"
 
 # Now add in C and C++ specific options, depending on mode.
 if test "$enable_build_with_cxx" = "yes"; then
@@ -16455,6 +16424,7 @@ struct bt_iter_pos *pos = bt_iter_get_pos (bt_ctf_get_iter (NULL));
 			struct bt_ctf_event *event = NULL;
 			const struct bt_definition *scope;
 
+			pos->type = BT_SEEK_BEGIN;
 			bt_iter_set_pos (bt_ctf_get_iter (NULL), pos);
 			scope = bt_ctf_get_top_level_scope (event,
 			      				   BT_STREAM_EVENT_HEADER);
@@ -16531,6 +16501,59 @@ _ACEOF
 fi
 
 
+for ac_prog in xsltproc
+do
+  # Extract the first word of "$ac_prog", so it can be a program name with args.
+set dummy $ac_prog; ac_word=$2
+{ $as_echo "$as_me:${as_lineno-$LINENO}: checking for $ac_word" >&5
+$as_echo_n "checking for $ac_word... " >&6; }
+if test "${ac_cv_path_XSLTPROC+set}" = set; then :
+  $as_echo_n "(cached) " >&6
+else
+  case $XSLTPROC in
+  [\\/]* | ?:[\\/]*)
+  ac_cv_path_XSLTPROC="$XSLTPROC" # Let the user override the test with a path.
+  ;;
+  *)
+  as_save_IFS=$IFS; IFS=$PATH_SEPARATOR
+for as_dir in $PATH
+do
+  IFS=$as_save_IFS
+  test -z "$as_dir" && as_dir=.
+    for ac_exec_ext in '' $ac_executable_extensions; do
+  if { test -f "$as_dir/$ac_word$ac_exec_ext" && $as_test_x "$as_dir/$ac_word$ac_exec_ext"; }; then
+    ac_cv_path_XSLTPROC="$as_dir/$ac_word$ac_exec_ext"
+    $as_echo "$as_me:${as_lineno-$LINENO}: found $as_dir/$ac_word$ac_exec_ext" >&5
+    break 2
+  fi
+done
+  done
+IFS=$as_save_IFS
+
+  ;;
+esac
+fi
+XSLTPROC=$ac_cv_path_XSLTPROC
+if test -n "$XSLTPROC"; then
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: $XSLTPROC" >&5
+$as_echo "$XSLTPROC" >&6; }
+else
+  { $as_echo "$as_me:${as_lineno-$LINENO}: result: no" >&5
+$as_echo "no" >&6; }
+fi
+
+
+  test -n "$XSLTPROC" && break
+done
+test -n "$XSLTPROC" || XSLTPROC="missing"
+
+if test "x$USE_MAINTAINER_MODE" = xyes; then
+  if test "${XSLTPROC}" = missing; then
+    as_fn_error "unable to find xsltproc.  maintainer-mode requires xsltproc." "$LINENO" 5
+  fi
+fi
+
+
 ac_sources="$files"
 ac_dests="$links"
 while test -n "$ac_sources"; do
@@ -16546,6 +16569,12 @@ ac_config_links="$ac_config_links $ac_config_links_1"
 
 $as_echo "#define GDB_DEFAULT_HOST_CHARSET \"UTF-8\"" >>confdefs.h
 
+
+if $development; then
+
+$as_echo "#define GDB_SELF_TEST 1" >>confdefs.h
+
+fi
 
 
   gdb_ac_transform=`echo "$program_transform_name" | sed -e 's/\\$\\$/\\$/g'`

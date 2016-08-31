@@ -21,7 +21,7 @@ END-INFO-DIR-ENTRY
    This file documents the GNU debugger GDB.
 
    This is the Tenth Edition, of 'Debugging with GDB: the GNU
-Source-Level Debugger' for GDB (GDB) Version 7.11.1.20160801-git.
+Source-Level Debugger' for GDB (GDB) Version 7.11.90.20160830-git.
 
    Copyright (C) 1988-2016 Free Software Foundation, Inc.
 
@@ -35,6 +35,151 @@ with the Back-Cover Texts as in (a) below.
    (a) The FSF's Back-Cover Text is: "You are free to copy and modify
 this GNU Manual.  Buying copies from GNU Press supports the FSF in
 developing GNU and promoting software freedom."
+
+
+File: gdb.info,  Node: Which flavor to choose?,  Prev: dotdebug_gdb_scripts section,  Up: Auto-loading extensions
+
+23.4.3 Which flavor to choose?
+------------------------------
+
+Given the multiple ways of auto-loading extensions, it might not always
+be clear which one to choose.  This section provides some guidance.
+
+Benefits of the '-gdb.EXT' way:
+
+   * Can be used with file formats that don't support multiple sections.
+
+   * Ease of finding scripts for public libraries.
+
+     Scripts specified in the '.debug_gdb_scripts' section are searched
+     for in the source search path.  For publicly installed libraries,
+     e.g., 'libstdc++', there typically isn't a source directory in
+     which to find the script.
+
+   * Doesn't require source code additions.
+
+Benefits of the '.debug_gdb_scripts' way:
+
+   * Works with static linking.
+
+     Scripts for libraries done the '-gdb.EXT' way require an objfile to
+     trigger their loading.  When an application is statically linked
+     the only objfile available is the executable, and it is cumbersome
+     to attach all the scripts from all the input libraries to the
+     executable's '-gdb.EXT' script.
+
+   * Works with classes that are entirely inlined.
+
+     Some classes can be entirely inlined, and thus there may not be an
+     associated shared library to attach a '-gdb.EXT' script to.
+
+   * Scripts needn't be copied out of the source tree.
+
+     In some circumstances, apps can be built out of large collections
+     of internal libraries, and the build infrastructure necessary to
+     install the '-gdb.EXT' scripts in a place where GDB can find them
+     is cumbersome.  It may be easier to specify the scripts in the
+     '.debug_gdb_scripts' section as relative paths, and add a path to
+     the top of the source tree to the source search path.
+
+
+File: gdb.info,  Node: Multiple Extension Languages,  Next: Aliases,  Prev: Auto-loading extensions,  Up: Extending GDB
+
+23.5 Multiple Extension Languages
+=================================
+
+The Guile and Python extension languages do not share any state, and
+generally do not interfere with each other.  There are some things to be
+aware of, however.
+
+23.5.1 Python comes first
+-------------------------
+
+Python was GDB's first extension language, and to avoid breaking
+existing behaviour Python comes first.  This is generally solved by the
+"first one wins" principle.  GDB maintains a list of enabled extension
+languages, and when it makes a call to an extension language, (say to
+pretty-print a value), it tries each in turn until an extension language
+indicates it has performed the request (e.g., has returned the
+pretty-printed form of a value).  This extends to errors while
+performing such requests: If an error happens while, for example, trying
+to pretty-print an object then the error is reported and any following
+extension languages are not tried.
+
+
+File: gdb.info,  Node: Aliases,  Prev: Multiple Extension Languages,  Up: Extending GDB
+
+23.6 Creating new spellings of existing commands
+================================================
+
+It is often useful to define alternate spellings of existing commands.
+For example, if a new GDB command defined in Python has a long name to
+type, it is handy to have an abbreviated version of it that involves
+less typing.
+
+   GDB itself uses aliases.  For example 's' is an alias of the 'step'
+command even though it is otherwise an ambiguous abbreviation of other
+commands like 'set' and 'show'.
+
+   Aliases are also used to provide shortened or more common versions of
+multi-word commands.  For example, GDB provides the 'tty' alias of the
+'set inferior-tty' command.
+
+   You can define a new alias with the 'alias' command.
+
+'alias [-a] [--] ALIAS = COMMAND'
+
+   ALIAS specifies the name of the new alias.  Each word of ALIAS must
+consist of letters, numbers, dashes and underscores.
+
+   COMMAND specifies the name of an existing command that is being
+aliased.
+
+   The '-a' option specifies that the new alias is an abbreviation of
+the command.  Abbreviations are not shown in command lists displayed by
+the 'help' command.
+
+   The '--' option specifies the end of options, and is useful when
+ALIAS begins with a dash.
+
+   Here is a simple example showing how to make an abbreviation of a
+command so that there is less to type.  Suppose you were tired of typing
+'disas', the current shortest unambiguous abbreviation of the
+'disassemble' command and you wanted an even shorter version named 'di'.
+The following will accomplish this.
+
+     (gdb) alias -a di = disas
+
+   Note that aliases are different from user-defined commands.  With a
+user-defined command, you also need to write documentation for it with
+the 'document' command.  An alias automatically picks up the
+documentation of the existing command.
+
+   Here is an example where we make 'elms' an abbreviation of 'elements'
+in the 'set print elements' command.  This is to show that you can make
+an abbreviation of any part of a command.
+
+     (gdb) alias -a set print elms = set print elements
+     (gdb) alias -a show print elms = show print elements
+     (gdb) set p elms 20
+     (gdb) show p elms
+     Limit on string chars or array elements to print is 200.
+
+   Note that if you are defining an alias of a 'set' command, and you
+want to have an alias for the corresponding 'show' command, then you
+need to define the latter separately.
+
+   Unambiguously abbreviated commands are allowed in COMMAND and ALIAS,
+just as they are normally.
+
+     (gdb) alias -a set pr elms = set p ele
+
+   Finally, here is an example showing the creation of a one word alias
+for a more complex command.  This creates alias 'spe' of the command
+'set print elements'.
+
+     (gdb) alias spe = set print elements
+     (gdb) spe 20
 
 
 File: gdb.info,  Node: Interpreters,  Next: TUI,  Prev: Extending GDB,  Up: Top
@@ -72,21 +217,46 @@ include:
 'mi1'
      The GDB/MI interface included in GDB 5.1, 5.2, and 5.3.
 
-   The interpreter being used by GDB may not be dynamically switched at
-runtime.  Although possible, this could lead to a very precarious
-situation.  Consider an IDE using GDB/MI.  If a user enters the command
-"interpreter-set console" in a console view, GDB would switch to using
-the console interpreter, rendering the IDE inoperable!
-
-   Although you may only choose a single interpreter at startup, you may
-execute commands in any interpreter from the current interpreter using
-the appropriate command.  If you are running the console interpreter,
-simply use the 'interpreter-exec' command:
+   You may execute commands in any interpreter from the current
+interpreter using the appropriate command.  If you are running the
+console interpreter, simply use the 'interpreter-exec' command:
 
      interpreter-exec mi "-data-list-register-names"
 
    GDB/MI has a similar command, although it is only available in
 versions of GDB which support GDB/MI version 2 (or greater).
+
+   Note that 'interpreter-exec' only changes the interpreter for the
+duration of the specified command.  It does not change the interpreter
+permanently.
+
+   Although you may only choose a single interpreter at startup, it is
+possible to run an independent interpreter on a specified input/output
+device (usually a tty).
+
+   For example, consider a debugger GUI or IDE that wants to provide a
+GDB console view.  It may do so by embedding a terminal emulator widget
+in its GUI, starting GDB in the traditional command-line mode with
+stdin/stdout/stderr redirected to that terminal, and then creating an MI
+interpreter running on a specified input/output device.  The console
+interpreter created by GDB at startup handles commands the user types in
+the terminal widget, while the GUI controls and synchronizes state with
+GDB using the separate MI interpreter.
+
+   To start a new secondary "user interface" running MI, use the
+'new-ui' command:
+
+     new-ui INTERPRETER TTY
+
+   The INTERPRETER parameter specifies the interpreter to run.  This
+accepts the same values as the 'interpreter-exec' command.  For example,
+'console', 'mi', 'mi2', etc.  The TTY parameter specifies the name of
+the bidirectional file the interpreter uses for input/output, usually
+the name of a pseudoterminal slave on Unix systems.  For example:
+
+     (gdb) new-ui mi /dev/pts/9
+
+runs an MI interpreter on '/dev/pts/9'.
 
 
 File: gdb.info,  Node: TUI,  Next: Emacs,  Prev: Interpreters,  Up: Top
@@ -1436,11 +1606,16 @@ activity (e.g., target stopped).
      Note that if a breakpoint is emitted in the result record of a
      command, then it will not also be emitted in an async record.
 
-'=record-started,thread-group="ID"'
+'=record-started,thread-group="ID",method="METHOD"[,format="FORMAT"]'
 '=record-stopped,thread-group="ID"'
      Execution log recording was either started or stopped on an
      inferior.  The ID is the GDB identifier of the thread group
      corresponding to the affected inferior.
+
+     The METHOD field indicates the method used to record execution.  If
+     the method in use supports multiple recording formats, FORMAT will
+     be present and contain the currently used format.  *Note Process
+     Record and Replay::.  for existing method and format values.
 
 '=cmd-param-changed,param=PARAM,value=VALUE'
      Reports that a parameter of the command 'set PARAM' is changed to
@@ -8569,250 +8744,4 @@ File: gdb.info,  Node: Commands For Text,  Next: Commands For Killing,  Prev: Co
      before point with a space.
 
      By default, this command is unbound.
-
-
-File: gdb.info,  Node: Commands For Killing,  Next: Numeric Arguments,  Prev: Commands For Text,  Up: Bindable Readline Commands
-
-32.4.4 Killing And Yanking
---------------------------
-
-'kill-line (C-k)'
-     Kill the text from point to the end of the line.
-
-'backward-kill-line (C-x Rubout)'
-     Kill backward to the beginning of the line.
-
-'unix-line-discard (C-u)'
-     Kill backward from the cursor to the beginning of the current line.
-
-'kill-whole-line ()'
-     Kill all characters on the current line, no matter where point is.
-     By default, this is unbound.
-
-'kill-word (M-d)'
-     Kill from point to the end of the current word, or if between
-     words, to the end of the next word.  Word boundaries are the same
-     as 'forward-word'.
-
-'backward-kill-word (M-<DEL>)'
-     Kill the word behind point.  Word boundaries are the same as
-     'backward-word'.
-
-'unix-word-rubout (C-w)'
-     Kill the word behind point, using white space as a word boundary.
-     The killed text is saved on the kill-ring.
-
-'unix-filename-rubout ()'
-     Kill the word behind point, using white space and the slash
-     character as the word boundaries.  The killed text is saved on the
-     kill-ring.
-
-'delete-horizontal-space ()'
-     Delete all spaces and tabs around point.  By default, this is
-     unbound.
-
-'kill-region ()'
-     Kill the text in the current region.  By default, this command is
-     unbound.
-
-'copy-region-as-kill ()'
-     Copy the text in the region to the kill buffer, so it can be yanked
-     right away.  By default, this command is unbound.
-
-'copy-backward-word ()'
-     Copy the word before point to the kill buffer.  The word boundaries
-     are the same as 'backward-word'.  By default, this command is
-     unbound.
-
-'copy-forward-word ()'
-     Copy the word following point to the kill buffer.  The word
-     boundaries are the same as 'forward-word'.  By default, this
-     command is unbound.
-
-'yank (C-y)'
-     Yank the top of the kill ring into the buffer at point.
-
-'yank-pop (M-y)'
-     Rotate the kill-ring, and yank the new top.  You can only do this
-     if the prior command is 'yank' or 'yank-pop'.
-
-
-File: gdb.info,  Node: Numeric Arguments,  Next: Commands For Completion,  Prev: Commands For Killing,  Up: Bindable Readline Commands
-
-32.4.5 Specifying Numeric Arguments
------------------------------------
-
-'digit-argument (M-0, M-1, ... M--)'
-     Add this digit to the argument already accumulating, or start a new
-     argument.  'M--' starts a negative argument.
-
-'universal-argument ()'
-     This is another way to specify an argument.  If this command is
-     followed by one or more digits, optionally with a leading minus
-     sign, those digits define the argument.  If the command is followed
-     by digits, executing 'universal-argument' again ends the numeric
-     argument, but is otherwise ignored.  As a special case, if this
-     command is immediately followed by a character that is neither a
-     digit or minus sign, the argument count for the next command is
-     multiplied by four.  The argument count is initially one, so
-     executing this function the first time makes the argument count
-     four, a second time makes the argument count sixteen, and so on.
-     By default, this is not bound to a key.
-
-
-File: gdb.info,  Node: Commands For Completion,  Next: Keyboard Macros,  Prev: Numeric Arguments,  Up: Bindable Readline Commands
-
-32.4.6 Letting Readline Type For You
-------------------------------------
-
-'complete (<TAB>)'
-     Attempt to perform completion on the text before point.  The actual
-     completion performed is application-specific.  The default is
-     filename completion.
-
-'possible-completions (M-?)'
-     List the possible completions of the text before point.  When
-     displaying completions, Readline sets the number of columns used
-     for display to the value of 'completion-display-width', the value
-     of the environment variable 'COLUMNS', or the screen width, in that
-     order.
-
-'insert-completions (M-*)'
-     Insert all completions of the text before point that would have
-     been generated by 'possible-completions'.
-
-'menu-complete ()'
-     Similar to 'complete', but replaces the word to be completed with a
-     single match from the list of possible completions.  Repeated
-     execution of 'menu-complete' steps through the list of possible
-     completions, inserting each match in turn.  At the end of the list
-     of completions, the bell is rung (subject to the setting of
-     'bell-style') and the original text is restored.  An argument of N
-     moves N positions forward in the list of matches; a negative
-     argument may be used to move backward through the list.  This
-     command is intended to be bound to <TAB>, but is unbound by
-     default.
-
-'menu-complete-backward ()'
-     Identical to 'menu-complete', but moves backward through the list
-     of possible completions, as if 'menu-complete' had been given a
-     negative argument.
-
-'delete-char-or-list ()'
-     Deletes the character under the cursor if not at the beginning or
-     end of the line (like 'delete-char').  If at the end of the line,
-     behaves identically to 'possible-completions'.  This command is
-     unbound by default.
-
-
-File: gdb.info,  Node: Keyboard Macros,  Next: Miscellaneous Commands,  Prev: Commands For Completion,  Up: Bindable Readline Commands
-
-32.4.7 Keyboard Macros
-----------------------
-
-'start-kbd-macro (C-x ()'
-     Begin saving the characters typed into the current keyboard macro.
-
-'end-kbd-macro (C-x ))'
-     Stop saving the characters typed into the current keyboard macro
-     and save the definition.
-
-'call-last-kbd-macro (C-x e)'
-     Re-execute the last keyboard macro defined, by making the
-     characters in the macro appear as if typed at the keyboard.
-
-
-File: gdb.info,  Node: Miscellaneous Commands,  Prev: Keyboard Macros,  Up: Bindable Readline Commands
-
-32.4.8 Some Miscellaneous Commands
-----------------------------------
-
-'re-read-init-file (C-x C-r)'
-     Read in the contents of the INPUTRC file, and incorporate any
-     bindings or variable assignments found there.
-
-'abort (C-g)'
-     Abort the current editing command and ring the terminal's bell
-     (subject to the setting of 'bell-style').
-
-'do-uppercase-version (M-a, M-b, M-X, ...)'
-     If the metafied character X is lowercase, run the command that is
-     bound to the corresponding uppercase character.
-
-'prefix-meta (<ESC>)'
-     Metafy the next character typed.  This is for keyboards without a
-     meta key.  Typing '<ESC> f' is equivalent to typing 'M-f'.
-
-'undo (C-_ or C-x C-u)'
-     Incremental undo, separately remembered for each line.
-
-'revert-line (M-r)'
-     Undo all changes made to this line.  This is like executing the
-     'undo' command enough times to get back to the beginning.
-
-'tilde-expand (M-~)'
-     Perform tilde expansion on the current word.
-
-'set-mark (C-@)'
-     Set the mark to the point.  If a numeric argument is supplied, the
-     mark is set to that position.
-
-'exchange-point-and-mark (C-x C-x)'
-     Swap the point with the mark.  The current cursor position is set
-     to the saved position, and the old cursor position is saved as the
-     mark.
-
-'character-search (C-])'
-     A character is read and point is moved to the next occurrence of
-     that character.  A negative count searches for previous
-     occurrences.
-
-'character-search-backward (M-C-])'
-     A character is read and point is moved to the previous occurrence
-     of that character.  A negative count searches for subsequent
-     occurrences.
-
-'skip-csi-sequence ()'
-     Read enough characters to consume a multi-key sequence such as
-     those defined for keys like Home and End.  Such sequences begin
-     with a Control Sequence Indicator (CSI), usually ESC-[.  If this
-     sequence is bound to "\e[", keys producing such sequences will have
-     no effect unless explicitly bound to a readline command, instead of
-     inserting stray characters into the editing buffer.  This is
-     unbound by default, but usually bound to ESC-[.
-
-'insert-comment (M-#)'
-     Without a numeric argument, the value of the 'comment-begin'
-     variable is inserted at the beginning of the current line.  If a
-     numeric argument is supplied, this command acts as a toggle: if the
-     characters at the beginning of the line do not match the value of
-     'comment-begin', the value is inserted, otherwise the characters in
-     'comment-begin' are deleted from the beginning of the line.  In
-     either case, the line is accepted as if a newline had been typed.
-
-'dump-functions ()'
-     Print all of the functions and their key bindings to the Readline
-     output stream.  If a numeric argument is supplied, the output is
-     formatted in such a way that it can be made part of an INPUTRC
-     file.  This command is unbound by default.
-
-'dump-variables ()'
-     Print all of the settable variables and their values to the
-     Readline output stream.  If a numeric argument is supplied, the
-     output is formatted in such a way that it can be made part of an
-     INPUTRC file.  This command is unbound by default.
-
-'dump-macros ()'
-     Print all of the Readline key sequences bound to macros and the
-     strings they output.  If a numeric argument is supplied, the output
-     is formatted in such a way that it can be made part of an INPUTRC
-     file.  This command is unbound by default.
-
-'emacs-editing-mode (C-e)'
-     When in 'vi' command mode, this causes a switch to 'emacs' editing
-     mode.
-
-'vi-editing-mode (M-C-j)'
-     When in 'emacs' editing mode, this causes a switch to 'vi' editing
-     mode.
 

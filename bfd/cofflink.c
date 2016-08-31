@@ -212,8 +212,9 @@ coff_link_check_archive_element (bfd *abfd,
   if (h->type != bfd_link_hash_undefined)
     return TRUE;
 
+  /* Include this element?  */
   if (!(*info->callbacks->add_archive_element) (info, abfd, name, &abfd))
-    return FALSE;
+    return TRUE;
   *pneeded = TRUE;
 
   return coff_link_add_object_symbols (abfd, info);
@@ -1397,7 +1398,8 @@ mark_relocs (struct coff_final_link_info *flaginfo, bfd *input_bfd)
 	 in the relocation table.  This will then be picked up in the
 	 skip/don't-skip pass.  */
       for (; irel < irelend; irel++)
-	flaginfo->sym_indices[ irel->r_symndx ] = -1;
+	if ((unsigned long) irel->r_symndx < obj_raw_syment_count (input_bfd))
+	  flaginfo->sym_indices[irel->r_symndx] = -1;
     }
 }
 
@@ -2514,10 +2516,8 @@ _bfd_coff_link_input_bfd (struct coff_final_link_info *flaginfo, bfd *input_bfd)
 			  if (name == NULL)
 			    return FALSE;
 
-			  if (! ((*flaginfo->info->callbacks->unattached_reloc)
-				 (flaginfo->info, name, input_bfd, o,
-				  irel->r_vaddr)))
-			    return FALSE;
+			  (*flaginfo->info->callbacks->unattached_reloc)
+			    (flaginfo->info, name, input_bfd, o, irel->r_vaddr);
 			}
 		    }
 		}
@@ -2833,18 +2833,14 @@ _bfd_coff_reloc_link_order (bfd *output_bfd,
 	case bfd_reloc_outofrange:
 	  abort ();
 	case bfd_reloc_overflow:
-	  if (! ((*flaginfo->info->callbacks->reloc_overflow)
-		 (flaginfo->info, NULL,
-		  (link_order->type == bfd_section_reloc_link_order
-		   ? bfd_section_name (output_bfd,
-				       link_order->u.reloc.p->u.section)
-		   : link_order->u.reloc.p->u.name),
-		  howto->name, link_order->u.reloc.p->addend,
-		  (bfd *) NULL, (asection *) NULL, (bfd_vma) 0)))
-	    {
-	      free (buf);
-	      return FALSE;
-	    }
+	  (*flaginfo->info->callbacks->reloc_overflow)
+	    (flaginfo->info, NULL,
+	     (link_order->type == bfd_section_reloc_link_order
+	      ? bfd_section_name (output_bfd,
+				  link_order->u.reloc.p->u.section)
+	      : link_order->u.reloc.p->u.name),
+	     howto->name, link_order->u.reloc.p->addend,
+	     (bfd *) NULL, (asection *) NULL, (bfd_vma) 0);
 	  break;
 	}
       loc = link_order->offset * bfd_octets_per_byte (output_bfd);
@@ -2900,10 +2896,9 @@ _bfd_coff_reloc_link_order (bfd *output_bfd,
 	}
       else
 	{
-	  if (! ((*flaginfo->info->callbacks->unattached_reloc)
-		 (flaginfo->info, link_order->u.reloc.p->u.name, (bfd *) NULL,
-		  (asection *) NULL, (bfd_vma) 0)))
-	    return FALSE;
+	  (*flaginfo->info->callbacks->unattached_reloc)
+	    (flaginfo->info, link_order->u.reloc.p->u.name,
+	     (bfd *) NULL, (asection *) NULL, (bfd_vma) 0);
 	  irel->r_symndx = 0;
 	}
     }
@@ -3007,6 +3002,12 @@ _bfd_coff_generic_relocate_section (bfd *output_bfd,
 	  else
 	    {
 	      sec = sections[symndx];
+
+	      /* PR 19623: Relocations against symbols in
+		 the absolute sections should ignored.  */
+              if (bfd_is_abs_section (sec))
+		continue;
+
               val = (sec->output_section->vma
 		     + sec->output_offset
 		     + sym->n_value);
@@ -3062,12 +3063,9 @@ _bfd_coff_generic_relocate_section (bfd *output_bfd,
 	    }
 
 	  else if (! bfd_link_relocatable (info))
-	    {
-	      if (! ((*info->callbacks->undefined_symbol)
-		     (info, h->root.root.string, input_bfd, input_section,
-		      rel->r_vaddr - input_section->vma, TRUE)))
-		return FALSE;
-	    }
+	    (*info->callbacks->undefined_symbol)
+	      (info, h->root.root.string, input_bfd, input_section,
+	       rel->r_vaddr - input_section->vma, TRUE);
 	}
 
       /* If the input section defining the symbol has been discarded
@@ -3137,11 +3135,10 @@ _bfd_coff_generic_relocate_section (bfd *output_bfd,
 		  return FALSE;
 	      }
 
-	    if (! ((*info->callbacks->reloc_overflow)
-		   (info, (h ? &h->root : NULL), name, howto->name,
-		    (bfd_vma) 0, input_bfd, input_section,
-		    rel->r_vaddr - input_section->vma)))
-	      return FALSE;
+	    (*info->callbacks->reloc_overflow)
+	      (info, (h ? &h->root : NULL), name, howto->name,
+	       (bfd_vma) 0, input_bfd, input_section,
+	       rel->r_vaddr - input_section->vma);
 	  }
 	}
     }

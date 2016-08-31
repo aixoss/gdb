@@ -22,7 +22,7 @@
 #include "notif.h"
 #include "tdesc.h"
 #include "rsp-low.h"
-
+#include "signals-state-save-restore.h"
 #include <ctype.h>
 #include <unistd.h>
 #if HAVE_SIGNAL_H
@@ -119,7 +119,7 @@ int disable_packet_qfThreadInfo;
 static struct target_waitstatus last_status;
 static ptid_t last_ptid;
 
-static char *own_buf;
+char *own_buf;
 static unsigned char *mem_buf;
 
 /* A sub-class of 'struct notif_event' for stop, holding information
@@ -2935,7 +2935,7 @@ handle_v_kill (char *own_buf)
 }
 
 /* Handle all of the extended 'v' packets.  */
-static void
+void
 handle_v_requests (char *own_buf, int packet_len, int *new_packet_len)
 {
   if (!disable_packet_vCont)
@@ -2958,12 +2958,15 @@ handle_v_requests (char *own_buf, int packet_len, int *new_packet_len)
 	{
 	  strcpy (own_buf, "vCont;c;C;t");
 
-	  if (target_supports_hardware_single_step () || !vCont_supported)
+	  if (target_supports_hardware_single_step ()
+	      || target_supports_software_single_step ()
+	      || !vCont_supported)
 	    {
-	      /* If target supports hardware single step, add actions s
-		 and S to the list of supported actions.  On the other
-		 hand, if GDB doesn't request the supported vCont actions
-		 in qSupported packet, add s and S to the list too.  */
+	      /* If target supports single step either by hardware or by
+		 software, add actions s and S to the list of supported
+		 actions.  On the other hand, if GDB doesn't request the
+		 supported vCont actions in qSupported packet, add s and
+		 S to the list too.  */
 	      own_buf = own_buf + strlen (own_buf);
 	      strcpy (own_buf, ";s;S");
 	    }
@@ -3608,6 +3611,8 @@ captured_main (int argc, char *argv[])
      opened by remote_prepare.  */
   notice_open_fds ();
 
+  save_original_signals_state ();
+
   /* We need to know whether the remote connection is stdio before
      starting the inferior.  Inferiors created in this scenario have
      stdin,stdout redirected.  So do this here before we call
@@ -3825,7 +3830,7 @@ main (int argc, char *argv[])
    after the last processed option.  */
 
 static void
-process_point_options (struct breakpoint *bp, char **packet)
+process_point_options (struct gdb_breakpoint *bp, char **packet)
 {
   char *dataptr = *packet;
   int persist;
@@ -4197,7 +4202,7 @@ process_serial_event (void)
 
 	if (insert)
 	  {
-	    struct breakpoint *bp;
+	    struct gdb_breakpoint *bp;
 
 	    bp = set_gdb_breakpoint (type, addr, kind, &res);
 	    if (bp != NULL)

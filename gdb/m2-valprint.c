@@ -162,13 +162,11 @@ m2_print_unbounded_array (struct type *type, const gdb_byte *valaddr,
 			  struct ui_file *stream, int recurse,
 			  const struct value_print_options *options)
 {
-  struct type *content_type;
   CORE_ADDR addr;
   LONGEST len;
   struct value *val;
 
   type = check_typedef (type);
-  content_type = TYPE_TARGET_TYPE (TYPE_FIELD_TYPE (type, 0));
 
   addr = unpack_pointer (TYPE_FIELD_TYPE (type, 0),
 			 (TYPE_FIELD_BITPOS (type, 0) / 8) +
@@ -301,7 +299,9 @@ static const struct generic_val_print_decorations m2_decorations =
   " * I",
   "TRUE",
   "FALSE",
-  "void"
+  "void",
+  "{",
+  "}"
 };
 
 /* See val_print for a description of the various parameters of this
@@ -314,7 +314,6 @@ m2_val_print (struct type *type, const gdb_byte *valaddr, int embedded_offset,
 	      const struct value_print_options *options)
 {
   struct gdbarch *gdbarch = get_type_arch (type);
-  unsigned int i = 0;	/* Number of characters printed.  */
   unsigned len;
   struct type *elttype;
   CORE_ADDR addr;
@@ -353,7 +352,6 @@ m2_val_print (struct type *type, const gdb_byte *valaddr, int embedded_offset,
 	      LA_PRINT_STRING (stream, TYPE_TARGET_TYPE (type),
 			       valaddr + embedded_offset, len, NULL,
 			       0, options);
-	      i = len;
 	    }
 	  else
 	    {

@@ -147,8 +147,7 @@ static ULONGEST get_next_pcs_read_memory_unsigned_integer (CORE_ADDR memaddr,
 static CORE_ADDR get_next_pcs_addr_bits_remove (struct arm_get_next_pcs *self,
 						CORE_ADDR val);
 
-static CORE_ADDR get_next_pcs_syscall_next_pc (struct arm_get_next_pcs *self,
-					       CORE_ADDR pc);
+static CORE_ADDR get_next_pcs_syscall_next_pc (struct arm_get_next_pcs *self);
 
 static int get_next_pcs_is_thumb (struct arm_get_next_pcs *self);
 
@@ -157,7 +156,8 @@ static struct arm_get_next_pcs_ops get_next_pcs_ops = {
   get_next_pcs_read_memory_unsigned_integer,
   get_next_pcs_syscall_next_pc,
   get_next_pcs_addr_bits_remove,
-  get_next_pcs_is_thumb
+  get_next_pcs_is_thumb,
+  arm_linux_get_next_pcs_fixup,
 };
 
 static int
@@ -262,6 +262,7 @@ get_next_pcs_read_memory_unsigned_integer (CORE_ADDR memaddr,
 {
   ULONGEST res;
 
+  res = 0;
   (*the_target->read_memory) (memaddr, (unsigned char *) &res, len);
   return res;
 }
@@ -763,7 +764,7 @@ arm_sigreturn_next_pc (struct regcache *regcache, int svc_number,
   /* Offset of PC register.  */
   int pc_offset = 0;
   CORE_ADDR next_pc = 0;
-  CORE_ADDR cpsr;
+  uint32_t cpsr;
 
   gdb_assert (svc_number == __NR_sigreturn || svc_number == __NR_rt_sigreturn);
 
@@ -785,9 +786,10 @@ arm_sigreturn_next_pc (struct regcache *regcache, int svc_number,
 /* When PC is at a syscall instruction, return the PC of the next
    instruction to be executed.  */
 static CORE_ADDR
-get_next_pcs_syscall_next_pc (struct arm_get_next_pcs *self, CORE_ADDR pc)
+get_next_pcs_syscall_next_pc (struct arm_get_next_pcs *self)
 {
   CORE_ADDR next_pc = 0;
+  CORE_ADDR pc = regcache_read_pc (self->regcache);
   int is_thumb = arm_is_thumb_mode ();
   ULONGEST svc_number = 0;
   struct regcache *regcache = self->regcache;
@@ -949,6 +951,40 @@ arm_supports_hardware_single_step (void)
   return 0;
 }
 
+/* Implementation of linux_target_ops method "get_syscall_trapinfo".  */
+
+static void
+arm_get_syscall_trapinfo (struct regcache *regcache, int *sysno)
+{
+  if (arm_is_thumb_mode ())
+    collect_register_by_name (regcache, "r7", sysno);
+  else
+    {
+      unsigned long pc;
+      unsigned long insn;
+
+      collect_register_by_name (regcache, "pc", &pc);
+
+      if ((*the_target->read_memory) (pc - 4, (unsigned char *) &insn, 4))
+	*sysno = UNKNOWN_SYSCALL;
+      else
+	{
+	  unsigned long svc_operand = (0x00ffffff & insn);
+
+	  if (svc_operand)
+	    {
+	      /* OABI */
+	      *sysno = svc_operand - 0x900000;
+	    }
+	  else
+	    {
+	      /* EABI */
+	      collect_register_by_name (regcache, "r7", sysno);
+	    }
+	}
+    }
+}
+
 /* Register sets without using PTRACE_GETREGSET.  */
 
 static struct regset_info arm_regsets[] = {
@@ -1029,7 +1065,8 @@ struct linux_target_ops the_low_target = {
   NULL, /* get_min_fast_tracepoint_insn_len */
   NULL, /* supports_range_stepping */
   arm_breakpoint_kind_from_current_state,
-  arm_supports_hardware_single_step
+  arm_supports_hardware_single_step,
+  arm_get_syscall_trapinfo,
 };
 
 void

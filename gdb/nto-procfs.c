@@ -723,16 +723,12 @@ do_attach (ptid_t ptid)
 static void
 interrupt_query (void)
 {
-  target_terminal_ours ();
-
   if (query (_("Interrupted while waiting for the program.\n\
 Give up (and stop debugging it)? ")))
     {
       target_mourn_inferior ();
       quit ();
     }
-
-  target_terminal_inferior ();
 }
 
 /* The user typed ^C twice.  */
@@ -966,15 +962,8 @@ procfs_detach (struct target_ops *ops, const char *args, int from_tty)
   int siggnal = 0;
   int pid;
 
-  if (from_tty)
-    {
-      char *exec_file = get_exec_file (0);
-      if (exec_file == 0)
-	exec_file = "";
-      printf_unfiltered ("Detaching from program: %s %s\n",
-			 exec_file, target_pid_to_str (inferior_ptid));
-      gdb_flush (gdb_stdout);
-    }
+  target_announce_detach ();
+
   if (args)
     siggnal = atoi (args);
 
@@ -1015,7 +1004,8 @@ procfs_insert_breakpoint (struct target_ops *ops, struct gdbarch *gdbarch,
 
 static int
 procfs_remove_breakpoint (struct target_ops *ops, struct gdbarch *gdbarch,
-			  struct bp_target_info *bp_tgt)
+			  struct bp_target_info *bp_tgt,
+			  enum remove_bp_reason reason)
 {
   return procfs_breakpoint (bp_tgt->placed_address, _DEBUG_BREAK_EXEC, -1);
 }

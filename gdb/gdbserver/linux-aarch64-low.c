@@ -163,23 +163,9 @@ static CORE_ADDR
 aarch64_get_pc (struct regcache *regcache)
 {
   if (register_size (regcache->tdesc, 0) == 8)
-    {
-      unsigned long pc;
-
-      collect_register_by_name (regcache, "pc", &pc);
-      if (debug_threads)
-	debug_printf ("stop pc is %08lx\n", pc);
-      return pc;
-    }
+    return linux_get_pc_64bit (regcache);
   else
-    {
-      unsigned int pc;
-
-      collect_register_by_name (regcache, "pc", &pc);
-      if (debug_threads)
-	debug_printf ("stop pc is %04x\n", pc);
-      return pc;
-    }
+    return linux_get_pc_32bit (regcache);
 }
 
 /* Implementation of linux_target_ops method "set_pc".  */
@@ -188,15 +174,9 @@ static void
 aarch64_set_pc (struct regcache *regcache, CORE_ADDR pc)
 {
   if (register_size (regcache->tdesc, 0) == 8)
-    {
-      unsigned long newpc = pc;
-      supply_register_by_name (regcache, "pc", &newpc);
-    }
+    linux_set_pc_64bit (regcache, pc);
   else
-    {
-      unsigned int newpc = pc;
-      supply_register_by_name (regcache, "pc", &newpc);
-    }
+    linux_set_pc_32bit (regcache, pc);
 }
 
 #define aarch64_breakpoint_len 4
@@ -588,6 +568,24 @@ aarch64_get_thread_area (int lwpid, CORE_ADDR *addrp)
   *addrp = reg;
 
   return 0;
+}
+
+/* Implementation of linux_target_ops method "get_syscall_trapinfo".  */
+
+static void
+aarch64_get_syscall_trapinfo (struct regcache *regcache, int *sysno)
+{
+  int use_64bit = register_size (regcache->tdesc, 0) == 8;
+
+  if (use_64bit)
+    {
+      long l_sysno;
+
+      collect_register_by_name (regcache, "x8", &l_sysno);
+      *sysno = (int) l_sysno;
+    }
+  else
+    collect_register_by_name (regcache, "r7", sysno);
 }
 
 /* List of condition codes that we need.  */
@@ -1577,7 +1575,7 @@ aarch64_ftrace_insn_reloc_b (const int is_bl, const int32_t offset,
 {
   struct aarch64_insn_relocation_data *insn_reloc
     = (struct aarch64_insn_relocation_data *) data;
-  int32_t new_offset
+  int64_t new_offset
     = insn_reloc->base.insn_addr - insn_reloc->new_addr + offset;
 
   if (can_encode_int32 (new_offset, 28))
@@ -1592,7 +1590,7 @@ aarch64_ftrace_insn_reloc_b_cond (const unsigned cond, const int32_t offset,
 {
   struct aarch64_insn_relocation_data *insn_reloc
     = (struct aarch64_insn_relocation_data *) data;
-  int32_t new_offset
+  int64_t new_offset
     = insn_reloc->base.insn_addr - insn_reloc->new_addr + offset;
 
   if (can_encode_int32 (new_offset, 21))
@@ -1629,7 +1627,7 @@ aarch64_ftrace_insn_reloc_cb (const int32_t offset, const int is_cbnz,
 {
   struct aarch64_insn_relocation_data *insn_reloc
     = (struct aarch64_insn_relocation_data *) data;
-  int32_t new_offset
+  int64_t new_offset
     = insn_reloc->base.insn_addr - insn_reloc->new_addr + offset;
 
   if (can_encode_int32 (new_offset, 21))
@@ -1666,7 +1664,7 @@ aarch64_ftrace_insn_reloc_tb (const int32_t offset, int is_tbnz,
 {
   struct aarch64_insn_relocation_data *insn_reloc
     = (struct aarch64_insn_relocation_data *) data;
-  int32_t new_offset
+  int64_t new_offset
     = insn_reloc->base.insn_addr - insn_reloc->new_addr + offset;
 
   if (can_encode_int32 (new_offset, 16))
@@ -1802,7 +1800,7 @@ aarch64_install_fast_tracepoint_jump_pad (CORE_ADDR tpoint,
 {
   uint32_t buf[256];
   uint32_t *p = buf;
-  int32_t offset;
+  int64_t offset;
   int i;
   uint32_t insn;
   CORE_ADDR buildaddr = *jump_entry;
@@ -2139,7 +2137,7 @@ aarch64_install_fast_tracepoint_jump_pad (CORE_ADDR tpoint,
     {
       sprintf (err,
 	       "E.Jump back from jump pad too far from tracepoint "
-	       "(offset 0x%" PRIx32 " cannot be encoded in 28 bits).",
+	       "(offset 0x%" PRIx64 " cannot be encoded in 28 bits).",
 	       offset);
       return 1;
     }
@@ -2153,7 +2151,7 @@ aarch64_install_fast_tracepoint_jump_pad (CORE_ADDR tpoint,
     {
       sprintf (err,
 	       "E.Jump pad too far from tracepoint "
-	       "(offset 0x%" PRIx32 " cannot be encoded in 28 bits).",
+	       "(offset 0x%" PRIx64 " cannot be encoded in 28 bits).",
 	       offset);
       return 1;
     }
@@ -2278,7 +2276,7 @@ aarch64_emit_add (void)
   uint32_t *p = buf;
 
   p += emit_pop (p, x1);
-  p += emit_add (p, x0, x0, register_operand (x1));
+  p += emit_add (p, x0, x1, register_operand (x0));
 
   emit_ops_insns (buf, p - buf);
 }
@@ -2292,7 +2290,7 @@ aarch64_emit_sub (void)
   uint32_t *p = buf;
 
   p += emit_pop (p, x1);
-  p += emit_sub (p, x0, x0, register_operand (x1));
+  p += emit_sub (p, x0, x1, register_operand (x0));
 
   emit_ops_insns (buf, p - buf);
 }
@@ -3004,6 +3002,7 @@ struct linux_target_ops the_low_target =
   aarch64_supports_range_stepping,
   aarch64_breakpoint_kind_from_current_state,
   aarch64_supports_hardware_single_step,
+  aarch64_get_syscall_trapinfo,
 };
 
 void

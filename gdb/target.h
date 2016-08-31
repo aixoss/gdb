@@ -478,7 +478,8 @@ struct target_ops
 				 struct bp_target_info *)
       TARGET_DEFAULT_FUNC (memory_insert_breakpoint);
     int (*to_remove_breakpoint) (struct target_ops *, struct gdbarch *,
-				 struct bp_target_info *)
+				 struct bp_target_info *,
+				 enum remove_bp_reason)
       TARGET_DEFAULT_FUNC (memory_remove_breakpoint);
 
     /* Returns true if the target stopped because it executed a
@@ -645,8 +646,8 @@ struct target_ops
       TARGET_DEFAULT_IGNORE ();
     void (*to_interrupt) (struct target_ops *, ptid_t)
       TARGET_DEFAULT_IGNORE ();
-    void (*to_check_pending_interrupt) (struct target_ops *)
-      TARGET_DEFAULT_IGNORE ();
+    void (*to_pass_ctrlc) (struct target_ops *)
+      TARGET_DEFAULT_FUNC (default_target_pass_ctrlc);
     void (*to_rcmd) (struct target_ops *,
 		     const char *command, struct ui_file *output)
       TARGET_DEFAULT_FUNC (default_rcmd);
@@ -744,6 +745,12 @@ struct target_ops
 						ULONGEST offset, ULONGEST len,
 						ULONGEST *xfered_len)
       TARGET_DEFAULT_RETURN (TARGET_XFER_E_IO);
+
+    /* Return the limit on the size of any single memory transfer
+       for the target.  */
+
+    ULONGEST (*to_get_memory_xfer_limit) (struct target_ops *)
+      TARGET_DEFAULT_RETURN (ULONGEST_MAX);
 
     /* Returns the memory map for the target.  A return value of NULL
        means that no memory map is available.  If a memory address
@@ -1302,6 +1309,11 @@ extern struct target_ops *find_run_target (void);
 #define target_post_attach(pid) \
      (*current_target.to_post_attach) (&current_target, pid)
 
+/* Display a message indicating we're about to detach from the current
+   inferior process.  */
+
+extern void target_announce_detach (int from_tty);
+
 /* Takes a program previously attached to and detaches it.
    The program may resume execution (some targets do, some don't) and will
    no longer stop on signals, etc.  We better not have left any breakpoints
@@ -1496,7 +1508,8 @@ extern int target_insert_breakpoint (struct gdbarch *gdbarch,
    machine.  Result is 0 for success, non-zero for error.  */
 
 extern int target_remove_breakpoint (struct gdbarch *gdbarch,
-				     struct bp_target_info *bp_tgt);
+				     struct bp_target_info *bp_tgt,
+				     enum remove_bp_reason reason);
 
 /* Returns true if the terminal settings of the inferior are in
    effect.  */
@@ -1512,21 +1525,23 @@ extern int target_terminal_is_ours (void);
 
 extern void target_terminal_init (void);
 
-/* Put the inferior's terminal settings into effect.
-   This is preparation for starting or resuming the inferior.  */
+/* Put the inferior's terminal settings into effect.  This is
+   preparation for starting or resuming the inferior.  This is a no-op
+   unless called with the main UI as current UI.  */
 
 extern void target_terminal_inferior (void);
 
 /* Put some of our terminal settings into effect, enough to get proper
    results from our output, but do not change into or out of RAW mode
    so that no input is discarded.  This is a no-op if terminal_ours
-   was most recently called.  */
+   was most recently called.  This is a no-op unless called with the main
+   UI as current UI.  */
 
 extern void target_terminal_ours_for_output (void);
 
-/* Put our terminal settings into effect.
-   First record the inferior's terminal settings
-   so they can be restored properly later.  */
+/* Put our terminal settings into effect.  First record the inferior's
+   terminal settings so they can be restored properly later.  This is
+   a no-op unless called with the main UI as current UI.  */
 
 extern void target_terminal_ours (void);
 
@@ -1716,13 +1731,16 @@ extern void target_stop (ptid_t ptid);
 
 extern void target_interrupt (ptid_t ptid);
 
-/* Some targets install their own SIGINT handler while the target is
-   running.  This method is called from the QUIT macro to give such
-   targets a chance to process a Ctrl-C.  The target may e.g., choose
-   to interrupt the (potentially) long running operation, or give up
-   waiting and disconnect.  */
+/* Pass a ^C, as determined to have been pressed by checking the quit
+   flag, to the target.  Normally calls target_interrupt, but remote
+   targets may take the opportunity to detect the remote side is not
+   responding and offer to disconnect.  */
 
-extern void target_check_pending_interrupt (void);
+extern void target_pass_ctrlc (void);
+
+/* The default target_ops::to_pass_ctrlc implementation.  Simply calls
+   target_interrupt.  */
+extern void default_target_pass_ctrlc (struct target_ops *ops);
 
 /* Send the specified COMMAND to the target's monitor
    (shell,interpreter) for execution.  The result of the query is
@@ -1922,7 +1940,8 @@ extern const char *target_thread_name (struct thread_info *);
    TYPE isn't supported.  TYPE is one of bp_hardware_watchpoint,
    bp_read_watchpoint, bp_write_watchpoint, or bp_hardware_breakpoint.
    CNT is the number of such watchpoints used so far, including this
-   one.  OTHERTYPE is who knows what...  */
+   one.  OTHERTYPE is the number of watchpoints of other types than
+   this one used so far.  */
 
 #define target_can_use_hardware_watchpoint(TYPE,CNT,OTHERTYPE) \
  (*current_target.to_can_use_hw_breakpoint) (&current_target,  \
@@ -2356,7 +2375,8 @@ extern struct target_section_table *target_get_section_table
 /* From mem-break.c */
 
 extern int memory_remove_breakpoint (struct target_ops *, struct gdbarch *,
-				     struct bp_target_info *);
+				     struct bp_target_info *,
+				     enum remove_bp_reason);
 
 extern int memory_insert_breakpoint (struct target_ops *, struct gdbarch *,
 				     struct bp_target_info *);

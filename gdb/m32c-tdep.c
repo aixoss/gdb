@@ -823,9 +823,6 @@ make_regs (struct gdbarch *arch)
   struct m32c_reg *sp;
   struct m32c_reg *r0hl;
   struct m32c_reg *r1hl;
-  struct m32c_reg *r2hl;
-  struct m32c_reg *r3hl;
-  struct m32c_reg *intbhl;
   struct m32c_reg *r2r0;
   struct m32c_reg *r3r1;
   struct m32c_reg *r3r1r2r0;
@@ -889,9 +886,9 @@ make_regs (struct gdbarch *arch)
 
   r0hl        = CHL (r0, tdep->int8);
   r1hl        = CHL (r1, tdep->int8);
-  r2hl        = CHL (r2, tdep->int8);
-  r3hl        = CHL (r3, tdep->int8);
-  intbhl      = CHL (intb, tdep->int16);
+  CHL (r2, tdep->int8);
+  CHL (r3, tdep->int8);
+  CHL (intb, tdep->int16);
 
   r2r0        = CCAT (r2,   r0,   tdep->int32);
   r3r1        = CCAT (r3,   r1,   tdep->int32);
@@ -1949,7 +1946,6 @@ m32c_prev_register (struct frame_info *this_frame,
   struct m32c_prologue *p
     = m32c_analyze_frame_prologue (this_frame, this_prologue_cache);
   CORE_ADDR frame_base = m32c_frame_base (this_frame, this_prologue_cache);
-  int reg_size = register_size (get_frame_arch (this_frame), regnum);
 
   if (regnum == tdep->sp->num)
     return frame_unwind_got_constant (this_frame, regnum, frame_base);

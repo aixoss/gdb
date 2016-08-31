@@ -446,6 +446,12 @@ M:int:ax_pseudo_register_collect:struct agent_expr *ax, int reg:ax, reg
 # Return -1 if something goes wrong, 0 otherwise.
 M:int:ax_pseudo_register_push_stack:struct agent_expr *ax, int reg:ax, reg
 
+# Some targets/architectures can do extra processing/display of
+# segmentation faults.  E.g., Intel MPX boundary faults.
+# Call the architecture dependent function to handle the fault.
+# UIOUT is the output stream where the handler will place information.
+M:void:handle_segmentation_fault:struct ui_out *uiout:uiout
+
 # GDB's standard (or well known) register numbers.  These can map onto
 # a real register or a pseudo (computed) register or not be defined at
 # all (-1).
@@ -478,6 +484,9 @@ v:int:deprecated_fp_regnum:::-1:-1::0
 M:CORE_ADDR:push_dummy_call:struct value *function, struct regcache *regcache, CORE_ADDR bp_addr, int nargs, struct value **args, CORE_ADDR sp, int struct_return, CORE_ADDR struct_addr:function, regcache, bp_addr, nargs, args, sp, struct_return, struct_addr
 v:int:call_dummy_location::::AT_ENTRY_POINT::0
 M:CORE_ADDR:push_dummy_code:CORE_ADDR sp, CORE_ADDR funaddr, struct value **args, int nargs, struct type *value_type, CORE_ADDR *real_pc, CORE_ADDR *bp_addr, struct regcache *regcache:sp, funaddr, args, nargs, value_type, real_pc, bp_addr, regcache
+
+# Return true if the code of FRAME is writable.
+m:int:code_of_frame_writable:struct frame_info *frame:frame::default_code_of_frame_writable::0
 
 m:void:print_registers_info:struct ui_file *file, struct frame_info *frame, int regnum, int all:file, frame, regnum, all::default_print_registers_info::0
 m:void:print_float_info:struct ui_file *file, struct frame_info *frame, const char *args:file, frame, args::default_print_float_info::0
@@ -599,15 +608,16 @@ m:CORE_ADDR:addr_bits_remove:CORE_ADDR addr:addr::core_addr_identity::0
 # indicates if the target needs software single step.  An ISA method to
 # implement it.
 #
-# FIXME/cagney/2001-01-18: This should be replaced with something that inserts
-# breakpoints using the breakpoint system instead of blatting memory directly
-# (as with rs6000).
-#
 # FIXME/cagney/2001-01-18: The logic is backwards.  It should be asking if the
 # target can single step.  If not, then implement single step using breakpoints.
 #
 # A return value of 1 means that the software_single_step breakpoints
-# were inserted; 0 means they were not.
+# were inserted; 0 means they were not.  Multiple breakpoints may be
+# inserted for some instructions such as conditional branch.  However,
+# each implementation must always evaluate the condition and only put
+# the breakpoint at the branch destination if the condition is true, so
+# that we ensure forward progress when stepping past a conditional
+# branch to self.
 F:int:software_single_step:struct frame_info *frame:frame
 
 # Return non-zero if the processor is executing a delay slot and a
@@ -1028,6 +1038,12 @@ m:int:has_shared_address_space:void:::default_has_shared_address_space::0
 # True if a fast tracepoint can be set at an address.
 m:int:fast_tracepoint_valid_at:CORE_ADDR addr, char **msg:addr, msg::default_fast_tracepoint_valid_at::0
 
+# Guess register state based on tracepoint location.  Used for tracepoints
+# where no registers have been collected, but there's only one location,
+# allowing us to guess the PC value, and perhaps some other registers.
+# On entry, regcache has all registers marked as unavailable.
+m:void:guess_tracepoint_registers:struct regcache *regcache, CORE_ADDR addr:regcache, addr::default_guess_tracepoint_registers::0
+
 # Return the "auto" target charset.
 f:const char *:auto_charset:void::default_auto_charset:default_auto_charset::0
 # Return the "auto" target wide charset.
@@ -1093,6 +1109,10 @@ m:int:insn_is_jump:CORE_ADDR addr:addr::default_insn_is_jump::0
 # Return -1 if there is insufficient buffer for a whole entry.
 # Return 1 if an entry was read into *TYPEP and *VALP.
 M:int:auxv_parse:gdb_byte **readptr, gdb_byte *endptr, CORE_ADDR *typep, CORE_ADDR *valp:readptr, endptr, typep, valp
+
+# Print the description of a single auxv entry described by TYPE and VAL
+# to FILE.
+m:void:print_auxv_entry:struct ui_file *file, CORE_ADDR type, CORE_ADDR val:file, type, val::default_print_auxv_entry::0
 
 # Find the address range of the current inferior's vsyscall/vDSO, and
 # write it to *RANGE.  If the vsyscall's length can't be determined, a
@@ -1251,6 +1271,7 @@ struct elf_internal_linux_prpsinfo;
 struct mem_range;
 struct syscalls_info;
 struct thread_info;
+struct ui_out;
 
 #include "regcache.h"
 
@@ -1599,6 +1620,7 @@ cat <<EOF
 #include "observer.h"
 #include "regcache.h"
 #include "objfiles.h"
+#include "auxv.h"
 
 /* Static function declarations */
 

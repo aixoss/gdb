@@ -56,6 +56,7 @@
 #include "solist.h"
 #include "solib.h"
 #include "xml-support.h"
+#include "inttypes.h"
 
 #include "i386-tdep.h"
 #include "i387-tdep.h"
@@ -825,6 +826,25 @@ windows_clear_solib (void)
   solib_end = &solib_start;
 }
 
+static void
+signal_event_command (char *args, int from_tty)
+{
+  uintptr_t event_id = 0;
+  char *endargs = NULL;
+
+  if (args == NULL)
+    error (_("signal-event requires an argument (integer event id)"));
+
+  event_id = strtoumax (args, &endargs, 10);
+
+  if ((errno == ERANGE) || (event_id == 0) || (event_id > UINTPTR_MAX) ||
+      ((HANDLE) event_id == INVALID_HANDLE_VALUE))
+    error (_("Failed to convert `%s' to event id"), args);
+
+  SetEvent ((HANDLE) event_id);
+  CloseHandle ((HANDLE) event_id);
+}
+
 /* Handle DEBUG_STRING output from child process.
    Cygwin prepends its messages with a "cygwin:".  Interpret this as
    a Cygwin signal.  Otherwise just print the string as a warning.  */
@@ -864,7 +884,7 @@ handle_output_debug_string (struct target_waitstatus *ourstatus)
 	 to treat this like a real signal.  */
       char *p;
       int sig = strtol (s + sizeof (_CYGWIN_SIGNAL_STRING) - 1, &p, 0);
-      int gotasig = gdb_signal_from_host (sig);
+      gdb_signal gotasig = gdb_signal_from_host (sig);
 
       ourstatus->value.sig = gotasig;
       if (gotasig)
@@ -1014,13 +1034,12 @@ display_selectors (char * args, int from_tty)
 static int
 handle_exception (struct target_waitstatus *ourstatus)
 {
-  windows_thread_info *th;
   DWORD code = current_event.u.Exception.ExceptionRecord.ExceptionCode;
 
   ourstatus->kind = TARGET_WAITKIND_STOPPED;
 
   /* Record the context of the current thread.  */
-  th = thread_rec (current_event.dwThreadId, -1);
+  thread_rec (current_event.dwThreadId, -1);
 
   switch (code)
     {
@@ -1894,7 +1913,7 @@ windows_get_exec_module_filename (char *exe_name_ret, size_t exe_name_max_len)
     /* Cygwin prefers that the path be in /x/y/z format, so extract
        the filename into a temporary buffer first, and then convert it
        to POSIX format into the destination buffer.  */
-    cygwin_buf_t *pathbuf = alloca (exe_name_max_len * sizeof (cygwin_buf_t));
+    cygwin_buf_t *pathbuf = (cygwin_buf_t *) alloca (exe_name_max_len * sizeof (cygwin_buf_t));
 
     len = GetModuleFileNameEx (current_process_handle,
 			       dh_buf, pathbuf, exe_name_max_len);
@@ -2551,6 +2570,13 @@ _initialize_windows_nat (void)
   cygwin_internal (CW_SET_DOS_FILE_WARNING, 0);
 #endif
 
+  add_com ("signal-event", class_run, signal_event_command, _("\
+Signal a crashed process with event ID, to allow its debugging.\n\
+This command is needed in support of setting up GDB as JIT debugger on \
+MS-Windows.  The command should be invoked from the GDB command line using \
+the '-ex' command-line option.  The ID of the event that blocks the \
+crashed process will be supplied by the Windows JIT debugging mechanism."));
+
 #ifdef __CYGWIN__
   add_setshow_boolean_cmd ("shell", class_support, &useshell, _("\
 Set use of shell to start subprocess."), _("\
@@ -2702,7 +2728,7 @@ _initialize_check_for_gdb_ini (void)
     {
       char *p;
       char *oldini = (char *) alloca (strlen (homedir) +
-				      sizeof ("/gdb.ini"));
+				      sizeof ("gdb.ini") + 1);
       strcpy (oldini, homedir);
       p = strchr (oldini, '\0');
       if (p > oldini && !IS_DIR_SEPARATOR (p[-1]))
@@ -2711,9 +2737,9 @@ _initialize_check_for_gdb_ini (void)
       if (access (oldini, 0) == 0)
 	{
 	  int len = strlen (oldini);
-	  char *newini = (char *) alloca (len + 1);
+	  char *newini = (char *) alloca (len + 2);
 
-	  xsnprintf (newini, len + 1, "%.*s.gdbinit",
+	  xsnprintf (newini, len + 2, "%.*s.gdbinit",
 		     (int) (len - (sizeof ("gdb.ini") - 1)), oldini);
 	  warning (_("obsolete '%s' found. Rename to '%s'."), oldini, newini);
 	}
