@@ -1,4 +1,4 @@
-This is gdb.info, produced by makeinfo version 6.0 from gdb.texinfo.
+This is gdb.info, produced by makeinfo version 5.2 from gdb.texinfo.
 
 Copyright (C) 1988-2016 Free Software Foundation, Inc.
 
@@ -21,7 +21,7 @@ END-INFO-DIR-ENTRY
    This file documents the GNU debugger GDB.
 
    This is the Tenth Edition, of 'Debugging with GDB: the GNU
-Source-Level Debugger' for GDB (GDB) Version 7.11.1.
+Source-Level Debugger' for GDB (GDB) Version 7.11.1.20160801-git.
 
    Copyright (C) 1988-2016 Free Software Foundation, Inc.
 

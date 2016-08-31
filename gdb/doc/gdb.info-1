@@ -1,4 +1,4 @@
-This is gdb.info, produced by makeinfo version 6.0 from gdb.texinfo.
+This is gdb.info, produced by makeinfo version 5.2 from gdb.texinfo.
 
 Copyright (C) 1988-2016 Free Software Foundation, Inc.
 
@@ -21,7 +21,7 @@ END-INFO-DIR-ENTRY
    This file documents the GNU debugger GDB.
 
    This is the Tenth Edition, of 'Debugging with GDB: the GNU
-Source-Level Debugger' for GDB (GDB) Version 7.11.1.
+Source-Level Debugger' for GDB (GDB) Version 7.11.1.20160801-git.
 
    Copyright (C) 1988-2016 Free Software Foundation, Inc.
 
@@ -44,7 +44,7 @@ Debugging with GDB
 
 This file describes GDB, the GNU symbolic debugger.
 
-   This is the Tenth Edition, for GDB (GDB) Version 7.11.1.
+   This is the Tenth Edition, for GDB (GDB) Version 7.11.1.20160801-git.
 
    Copyright (C) 1988-2016 Free Software Foundation, Inc.
 
@@ -491,7 +491,7 @@ Let us use GDB to try to see what is going on.
      There is absolutely no warranty for GDB; type "show warranty"
       for details.
 
-     GDB 7.11.1, Copyright 1999 Free Software Foundation, Inc...
+     GDB 7.11.1.20160801-git, Copyright 1999 Free Software Foundation, Inc...
      (gdb)
 
 GDB reads only enough symbol data to know where to find the rest when
@@ -2240,9 +2240,9 @@ the 'remove-inferiors' command.
      use the 'kill' or 'detach' command first.
 
    To quit debugging one of the running inferiors that is not the
-current inferior, you can either detach from it by using the
-'detach inferior' command (allowing it to run independently), or kill it
-using the 'kill inferiors' command:
+current inferior, you can either detach from it by using the 'detach inferior'
+command (allowing it to run independently), or kill it using the 'kill inferiors'
+command:
 
 'detach inferior INFNO...'
      Detach from the inferior or inferiors identified by GDB inferior
@@ -2687,10 +2687,10 @@ use the command 'set detach-on-fork'.
 
    If you choose to set 'detach-on-fork' mode off, then GDB will retain
 control of all forked processes (including nested forks).  You can list
-the forked processes under the control of GDB by using the
-'info inferiors' command, and switch from one fork to another by using
-the 'inferior' command (*note Debugging Multiple Inferiors and Programs:
-Inferiors and Programs.).
+the forked processes under the control of GDB by using the 'info inferiors'
+command, and switch from one fork to another by using the 'inferior'
+command (*note Debugging Multiple Inferiors and Programs: Inferiors and
+Programs.).
 
    To quit debugging one of the forked processes, you can either detach
 from it by using the 'detach inferiors' command (allowing it to run
@@ -2709,8 +2709,8 @@ cannot debug the child or parent until an 'exec' call completes.
 the new target restarts.  To restart the parent process, use the 'file'
 command with the parent executable name as its argument.  By default,
 after an 'exec' call executes, GDB discards the symbols of the previous
-executable image.  You can change this behaviour with the
-'set follow-exec-mode' command.
+executable image.  You can change this behaviour with the 'set follow-exec-mode'
+command.
 
 'set follow-exec-mode MODE'
 
@@ -5002,8 +5002,8 @@ instance, it doesn't run to exit), while you debug the child.  In other
 situations, you may not be interested in inspecting the current state of
 any of the processes GDB is attached to, and you may want to resume them
 all until some breakpoint is hit.  In the latter case, you can instruct
-GDB to allow all threads of all the inferiors to run with the
-'set schedule-multiple' command.
+GDB to allow all threads of all the inferiors to run with the 'set schedule-multiple'
+command.
 
 'set schedule-multiple'
      Set the mode for allowing threads of multiple processes to be

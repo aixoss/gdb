@@ -1,4 +1,4 @@
-This is gdb.info, produced by makeinfo version 6.0 from gdb.texinfo.
+This is gdb.info, produced by makeinfo version 5.2 from gdb.texinfo.
 
 Copyright (C) 1988-2016 Free Software Foundation, Inc.
 
@@ -21,7 +21,7 @@ END-INFO-DIR-ENTRY
    This file documents the GNU debugger GDB.
 
    This is the Tenth Edition, of 'Debugging with GDB: the GNU
-Source-Level Debugger' for GDB (GDB) Version 7.11.1.
+Source-Level Debugger' for GDB (GDB) Version 7.11.1.20160801-git.
 
    Copyright (C) 1988-2016 Free Software Foundation, Inc.
 
@@ -623,9 +623,9 @@ are:
      The character representation is replaced with the octal escape
      '\nnn' for characters outside the 7-bit ASCII range.
 
-     Without this format, GDB displays 'char', 'unsigned char', and
-     'signed char' data as character constants.  Single-byte members of
-     vectors are displayed as integer data.
+     Without this format, GDB displays 'char', 'unsigned char', and 'signed char'
+     data as character constants.  Single-byte members of vectors are
+     displayed as integer data.
 
 'f'
      Regard the bits of the value as a floating point number and print
@@ -4373,8 +4373,8 @@ File: gdb.info,  Node: save tracepoints,  Prev: tdump,  Up: Analyze Collected Da
 This command saves all current tracepoint definitions together with
 their actions and passcounts, into a file 'FILENAME' suitable for use in
 a later debugging session.  To read the saved tracepoint definitions,
-use the 'source' command (*note Command Files::).  The
-'save-tracepoints' command is a deprecated alias for 'save tracepoints'
+use the 'source' command (*note Command Files::).  The 'save-tracepoints'
+command is a deprecated alias for 'save tracepoints'
 
 
 File: gdb.info,  Node: Tracepoint Variables,  Next: Trace Files,  Prev: Analyze Collected Data,  Up: Tracepoints

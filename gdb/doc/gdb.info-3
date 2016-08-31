@@ -1,4 +1,4 @@
-This is gdb.info, produced by makeinfo version 6.0 from gdb.texinfo.
+This is gdb.info, produced by makeinfo version 5.2 from gdb.texinfo.
 
 Copyright (C) 1988-2016 Free Software Foundation, Inc.
 
@@ -21,7 +21,7 @@ END-INFO-DIR-ENTRY
    This file documents the GNU debugger GDB.
 
    This is the Tenth Edition, of 'Debugging with GDB: the GNU
-Source-Level Debugger' for GDB (GDB) Version 7.11.1.
+Source-Level Debugger' for GDB (GDB) Version 7.11.1.20160801-git.
 
    Copyright (C) 1988-2016 Free Software Foundation, Inc.
 
@@ -5082,34 +5082,40 @@ control when to auto-load files and which files should be auto-loaded.
                                      files.
 *Note info auto-load::.              Show state of all kinds of files.
 *Note set auto-load gdb-scripts::.   Control for GDB command scripts.
-*Note show auto-load gdb-scripts::.  Show setting of GDB command
-                                     scripts.
-*Note info auto-load gdb-scripts::.  Show state of GDB command scripts.
-*Note set auto-load python-scripts::.Control for GDB Python scripts.
-*Note show auto-load python-scripts::.Show setting of GDB Python
-                                     scripts.
-*Note info auto-load python-scripts::.Show state of GDB Python scripts.
-*Note set auto-load guile-scripts::. Control for GDB Guile scripts.
-*Note show auto-load guile-scripts::.Show setting of GDB Guile scripts.
-*Note info auto-load guile-scripts::.Show state of GDB Guile scripts.
-*Note set auto-load scripts-directory::.Control for GDB auto-loaded
-                                     scripts location.
-*Note show auto-load scripts-directory::.Show GDB auto-loaded scripts
-                                     location.
-*Note add-auto-load-scripts-directory::.Add directory for auto-loaded
-                                     scripts location list.
-*Note set auto-load local-gdbinit::. Control for init file in the
-                                     current directory.
-*Note show auto-load local-gdbinit::.Show setting of init file in the
-                                     current directory.
-*Note info auto-load local-gdbinit::.Show state of init file in the
-                                     current directory.
-*Note set auto-load libthread-db::.  Control for thread debugging
-                                     library.
-*Note show auto-load libthread-db::. Show setting of thread debugging
-                                     library.
-*Note info auto-load libthread-db::. Show state of thread debugging
-                                     library.
+*Note show auto-load                 Show setting of GDB command
+gdb-scripts::.                       scripts.
+*Note info auto-load                 Show state of GDB command scripts.
+gdb-scripts::.
+*Note set auto-load                  Control for GDB Python scripts.
+python-scripts::.
+*Note show auto-load                 Show setting of GDB Python
+python-scripts::.                    scripts.
+*Note info auto-load                 Show state of GDB Python scripts.
+python-scripts::.
+*Note set auto-load                  Control for GDB Guile scripts.
+guile-scripts::.
+*Note show auto-load                 Show setting of GDB Guile scripts.
+guile-scripts::.
+*Note info auto-load                 Show state of GDB Guile scripts.
+guile-scripts::.
+*Note set auto-load                  Control for GDB auto-loaded
+scripts-directory::.                 scripts location.
+*Note show auto-load                 Show GDB auto-loaded scripts
+scripts-directory::.                 location.
+*Note                                Add directory for auto-loaded
+add-auto-load-scripts-directory::.   scripts location list.
+*Note set auto-load                  Control for init file in the
+local-gdbinit::.                     current directory.
+*Note show auto-load                 Show setting of init file in the
+local-gdbinit::.                     current directory.
+*Note info auto-load                 Show state of init file in the
+local-gdbinit::.                     current directory.
+*Note set auto-load                  Control for thread debugging
+libthread-db::.                      library.
+*Note show auto-load                 Show setting of thread debugging
+libthread-db::.                      library.
+*Note info auto-load                 Show state of thread debugging
+libthread-db::.                      library.
 *Note set auto-load safe-path::.     Control directories trusted for
                                      automatic loading.
 *Note show auto-load safe-path::.    Show directories trusted for

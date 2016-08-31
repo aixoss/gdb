@@ -1,4 +1,4 @@
-This is gdb.info, produced by makeinfo version 6.0 from gdb.texinfo.
+This is gdb.info, produced by makeinfo version 5.2 from gdb.texinfo.
 
 Copyright (C) 1988-2016 Free Software Foundation, Inc.
 
@@ -21,7 +21,7 @@ END-INFO-DIR-ENTRY
    This file documents the GNU debugger GDB.
 
    This is the Tenth Edition, of 'Debugging with GDB: the GNU
-Source-Level Debugger' for GDB (GDB) Version 7.11.1.
+Source-Level Debugger' for GDB (GDB) Version 7.11.1.20160801-git.
 
    Copyright (C) 1988-2016 Free Software Foundation, Inc.
 
@@ -7274,56 +7274,4 @@ for a more complex command.  This creates alias 'spe' of the command
 
      (gdb) alias spe = set print elements
      (gdb) spe 20
-
-
-File: gdb.info,  Node: Interpreters,  Next: TUI,  Prev: Extending GDB,  Up: Top
-
-24 Command Interpreters
-***********************
-
-GDB supports multiple command interpreters, and some command
-infrastructure to allow users or user interface writers to switch
-between interpreters or run commands in other interpreters.
-
-   GDB currently supports two command interpreters, the console
-interpreter (sometimes called the command-line interpreter or CLI) and
-the machine interface interpreter (or GDB/MI).  This manual describes
-both of these interfaces in great detail.
-
-   By default, GDB will start with the console interpreter.  However,
-the user may choose to start GDB with another interpreter by specifying
-the '-i' or '--interpreter' startup options.  Defined interpreters
-include:
-
-'console'
-     The traditional console or command-line interpreter.  This is the
-     most often used interpreter with GDB.  With no interpreter
-     specified at runtime, GDB will use this interpreter.
-
-'mi'
-     The newest GDB/MI interface (currently 'mi2').  Used primarily by
-     programs wishing to use GDB as a backend for a debugger GUI or an
-     IDE. For more information, see *note The GDB/MI Interface: GDB/MI.
-
-'mi2'
-     The current GDB/MI interface.
-
-'mi1'
-     The GDB/MI interface included in GDB 5.1, 5.2, and 5.3.
-
-   The interpreter being used by GDB may not be dynamically switched at
-runtime.  Although possible, this could lead to a very precarious
-situation.  Consider an IDE using GDB/MI.  If a user enters the command
-"interpreter-set console" in a console view, GDB would switch to using
-the console interpreter, rendering the IDE inoperable!
-
-   Although you may only choose a single interpreter at startup, you may
-execute commands in any interpreter from the current interpreter using
-the appropriate command.  If you are running the console interpreter,
-simply use the 'interpreter-exec' command:
-
-     interpreter-exec mi "-data-list-register-names"
-
-   GDB/MI has a similar command, although it is only available in
-versions of GDB which support GDB/MI version 2 (or greater).
 
