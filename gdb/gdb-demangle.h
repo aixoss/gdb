@@ -1,5 +1,5 @@
 /* Basic C++ demangling support for GDB.
-   Copyright (C) 2011-2015 Free Software Foundation, Inc.
+   Copyright (C) 2011-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -21,7 +21,7 @@
 
 /* Nonzero means that encoded C++/ObjC names should be printed out in their
    C++/ObjC form rather than raw.  */
-extern int demangle;
+extern int gdb1_demangle;
 
 /* Nonzero means that encoded C++/ObjC names should be printed out in their
    C++/ObjC form even in assembler language displays.  If this is set, but

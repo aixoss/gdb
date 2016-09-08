@@ -1,4 +1,4 @@
-# Copyright (C) 1996-2015 Free Software Foundation, Inc.
+# Copyright (C) 1996-2016 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -18,6 +18,12 @@
 #
 # This test covers the various forms of "set scheduler-locking".
 
+# This test requires sending ^C to interrupt the running target.
+
+if [target_info exists gdb,nointerrupts] {
+    verbose "Skipping schedlock.exp because of nointerrupts."
+    return
+}
 
 standard_testfile
 
@@ -63,7 +69,7 @@ proc stop_process { description } {
   # message first, or GDB's signal handler may not be in place.
   after 1000 {send_gdb "\003"}
   gdb_expect {
-    -re "Program received signal SIGINT.*$gdb_prompt $"
+    -re "Thread .* received signal SIGINT.*$gdb_prompt $"
       {
 	pass $description
       }
@@ -285,8 +291,7 @@ proc test_step { schedlock cmd call_function } {
 
     step_ten_loops $cmd
 
-    # "next" lets other threads run while stepping over functions.
-    if { $schedlock == "on" || ($schedlock == "step" && !$call_function) } {
+    if { $schedlock == "on" || $schedlock == "step" } {
 	set locked 1
     } else {
 	set locked 0
@@ -302,10 +307,10 @@ foreach schedlock {"off" "step" "on"} {
 	    test_step $schedlock "step" 0
 	}
 	with_test_prefix "cmd=next" {
-	    # With "next", and schedlock "step", threads run unlocked
-	    # when stepping over a function call.  This exercises both
-	    # with and without a function call.  Without a function
-	    # call "next" should behave just like "step".
+	    # In GDB <= 7.9, with schedlock "step", "next" would
+	    # unlock threads when stepping over a function call.  This
+	    # exercises "next" with and without a function call.  WRT
+	    # "schedlock step", "next" should behave just like "step".
 	    foreach call_function {0 1} {
 		with_test_prefix "call_function=$call_function" {
 		    test_step $schedlock "next" $call_function

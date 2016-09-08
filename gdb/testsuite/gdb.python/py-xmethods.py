@@ -1,4 +1,4 @@
-# Copyright 2014-2015 Free Software Foundation, Inc.
+# Copyright 2014-2016 Free Software Foundation, Inc.
 
 # This program is free software; you can redistribute it and/or modify
 # it under the terms of the GNU General Public License as published by
@@ -42,6 +42,12 @@ def A_geta(obj):
 def A_getarrayind(obj, index):
   print('From Python <A_getarrayind>:')
   return obj['array'][index]
+
+def A_indexoper(obj, index):
+  return obj['array'][index].reference_value()
+
+def B_indexoper(obj, index):
+  return obj['array'][index].const_value().reference_value()
 
 
 type_A = gdb.parse_and_eval('(dop::A *) 0').type.target()
@@ -213,6 +219,16 @@ global_dm_list = [
                          '^getarrayind$',
                          A_getarrayind,
                          type_int),
+    SimpleXMethodMatcher('A_indexoper',
+                         '^dop::A$',
+                         'operator\\[\\]',
+                         A_indexoper,
+                         type_int),
+    SimpleXMethodMatcher('B_indexoper',
+                         '^dop::B$',
+                         'operator\\[\\]',
+                         B_indexoper,
+                         type_int)
 ]
 
 for matcher in global_dm_list:

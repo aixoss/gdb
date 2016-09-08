@@ -1,5 +1,5 @@
 /* Event loop machinery for GDB, the GNU debugger.
-   Copyright (C) 1999-2015 Free Software Foundation, Inc.
+   Copyright (C) 1999-2016 Free Software Foundation, Inc.
    Written by Elena Zannoni <ezannoni@cygnus.com> of Cygnus Solutions.
 
    This file is part of GDB.
@@ -21,6 +21,7 @@
 #include "event-loop.h"
 #include "event-top.h"
 #include "queue.h"
+#include "ser-event.h"
 
 #ifdef HAVE_POLL
 #if defined (HAVE_POLL_H)
@@ -31,9 +32,10 @@
 #endif
 
 #include <sys/types.h>
-#include <sys/time.h>
+#include "gdb_sys_time.h"
 #include "gdb_select.h"
 #include "observer.h"
+#include "top.h"
 
 /* Tell create_file_handler what events we are interested in.
    This is used by the select version of the event loop.  */
@@ -165,9 +167,23 @@ static struct
     /* Ptr to head of file handler list.  */
     file_handler *first_file_handler;
 
+    /* Next file handler to handle, for the select variant.  To level
+       the fairness across event sources, we serve file handlers in a
+       round-robin-like fashion.  The number and order of the polled
+       file handlers may change between invocations, but this is good
+       enough.  */
+    file_handler *next_file_handler;
+
 #ifdef HAVE_POLL
     /* Ptr to array of pollfd structures.  */
     struct pollfd *poll_fds;
+
+    /* Next file descriptor to handle, for the poll variant.  To level
+       the fairness across event sources, we poll the file descriptors
+       in a round-robin-like fashion.  The number and order of the
+       polled file descriptors may change between invocations, but
+       this is good enough.  */
+    int next_poll_fds_index;
 
     /* Timeout in milliseconds for calls to poll().  */
     int poll_timeout;
@@ -248,6 +264,28 @@ static int update_wait_timeout (void);
 static int poll_timers (void);
 
 
+/* This event is signalled whenever an asynchronous handler needs to
+   defer an action to the event loop.  */
+static struct serial_event *async_signal_handlers_serial_event;
+
+/* Callback registered with ASYNC_SIGNAL_HANDLERS_SERIAL_EVENT.  */
+
+static void
+async_signals_handler (int error, gdb_client_data client_data)
+{
+  /* Do nothing.  Handlers are run by invoke_async_signal_handlers
+     from instead.  */
+}
+
+void
+initialize_async_signal_handlers (void)
+{
+  async_signal_handlers_serial_event = make_serial_event ();
+
+  add_file_handler (serial_event_fd (async_signal_handlers_serial_event),
+		    async_signals_handler, NULL);
+}
+
 /* Process one high level event.  If nothing is ready at this time,
    wait for something to happen (via gdb_wait_for_event), then process
    it.  Returns >0 if something was done otherwise returns <0 (this
@@ -326,14 +364,13 @@ start_event_loop (void)
      processes it.  */
   while (1)
     {
-      volatile struct gdb_exception ex;
       int result = 0;
 
-      TRY_CATCH (ex, RETURN_MASK_ALL)
+      TRY
 	{
 	  result = gdb_do_one_event ();
 	}
-      if (ex.reason < 0)
+      CATCH (ex, RETURN_MASK_ALL)
 	{
 	  exception_print (gdb_stderr, ex);
 
@@ -344,6 +381,7 @@ start_event_loop (void)
 	  /* If we long-jumped out of do_one_event, we probably didn't
 	     get around to resetting the prompt, which leaves readline
 	     in a messed-up state.  Reset it here.  */
+	  current_ui->prompt_state = PROMPT_NEEDED;
 	  observer_notify_command_error ();
 	  /* This call looks bizarre, but it is required.  If the user
 	     entered a command that caused an error,
@@ -356,6 +394,8 @@ start_event_loop (void)
 	  /* Maybe better to set a flag to be checked somewhere as to
 	     whether display the prompt or not.  */
 	}
+      END_CATCH
+
       if (result < 0)
 	break;
     }
@@ -440,7 +480,7 @@ create_file_handler (int fd, int mask, handler_func * proc,
      change the data associated with it.  */
   if (file_ptr == NULL)
     {
-      file_ptr = (file_handler *) xmalloc (sizeof (file_handler));
+      file_ptr = XNEW (file_handler);
       file_ptr->fd = fd;
       file_ptr->ready_mask = 0;
       file_ptr->next_file = gdb_notifier.first_file_handler;
@@ -457,7 +497,7 @@ create_file_handler (int fd, int mask, handler_func * proc,
 					   * sizeof (struct pollfd)));
 	  else
 	    gdb_notifier.poll_fds =
-	      (struct pollfd *) xmalloc (sizeof (struct pollfd));
+	      XNEW (struct pollfd);
 	  (gdb_notifier.poll_fds + gdb_notifier.num_fds - 1)->fd = fd;
 	  (gdb_notifier.poll_fds + gdb_notifier.num_fds - 1)->events = mask;
 	  (gdb_notifier.poll_fds + gdb_notifier.num_fds - 1)->revents = 0;
@@ -491,6 +531,31 @@ create_file_handler (int fd, int mask, handler_func * proc,
   file_ptr->proc = proc;
   file_ptr->client_data = client_data;
   file_ptr->mask = mask;
+}
+
+/* Return the next file handler to handle, and advance to the next
+   file handler, wrapping around if the end of the list is
+   reached.  */
+
+static file_handler *
+get_next_file_handler_to_handle_and_advance (void)
+{
+  file_handler *curr_next;
+
+  /* The first time around, this is still NULL.  */
+  if (gdb_notifier.next_file_handler == NULL)
+    gdb_notifier.next_file_handler = gdb_notifier.first_file_handler;
+
+  curr_next = gdb_notifier.next_file_handler;
+  gdb_assert (curr_next != NULL);
+
+  /* Advance.  */
+  gdb_notifier.next_file_handler = curr_next->next_file;
+  /* Wrap around, if necessary.  */
+  if (gdb_notifier.next_file_handler == NULL)
+    gdb_notifier.next_file_handler = gdb_notifier.first_file_handler;
+
+  return curr_next;
 }
 
 /* Remove the file descriptor FD from the list of monitored fd's: 
@@ -574,6 +639,17 @@ delete_file_handler (int fd)
      so that it will not fire again.  */
 
   file_ptr->mask = 0;
+
+  /* If this file handler was going to be the next one to be handled,
+     advance to the next's next, if any.  */
+  if (gdb_notifier.next_file_handler == file_ptr)
+    {
+      if (file_ptr->next_file == NULL
+	  && file_ptr == gdb_notifier.first_file_handler)
+	gdb_notifier.next_file_handler = NULL;
+      else
+	get_next_file_handler_to_handle_and_advance ();
+    }
 
   /* Get rid of the file handler in the file handler list.  */
   if (file_ptr == gdb_notifier.first_file_handler)
@@ -671,7 +747,6 @@ gdb_wait_for_event (int block)
 {
   file_handler *file_ptr;
   int num_found = 0;
-  int i;
 
   /* Make sure all output is done before getting another event.  */
   gdb_flush (gdb_stdout);
@@ -742,37 +817,47 @@ gdb_wait_for_event (int block)
 	}
     }
 
+  /* Avoid looking at poll_fds[i]->revents if no event fired.  */
+  if (num_found <= 0)
+    return 0;
+
   /* Run event handlers.  We always run just one handler and go back
      to polling, in case a handler changes the notifier list.  Since
      events for sources we haven't consumed yet wake poll/select
      immediately, no event is lost.  */
 
+  /* To level the fairness across event descriptors, we handle them in
+     a round-robin-like fashion.  The number and order of descriptors
+     may change between invocations, but this is good enough.  */
   if (use_poll)
     {
 #ifdef HAVE_POLL
-      for (i = 0; (i < gdb_notifier.num_fds) && (num_found > 0); i++)
+      int i;
+      int mask;
+
+      while (1)
 	{
+	  if (gdb_notifier.next_poll_fds_index >= gdb_notifier.num_fds)
+	    gdb_notifier.next_poll_fds_index = 0;
+	  i = gdb_notifier.next_poll_fds_index++;
+
+	  gdb_assert (i < gdb_notifier.num_fds);
 	  if ((gdb_notifier.poll_fds + i)->revents)
-	    num_found--;
-	  else
-	    continue;
-
-	  for (file_ptr = gdb_notifier.first_file_handler;
-	       file_ptr != NULL;
-	       file_ptr = file_ptr->next_file)
-	    {
-	      if (file_ptr->fd == (gdb_notifier.poll_fds + i)->fd)
-		break;
-	    }
-
-	  if (file_ptr)
-	    {
-	      int mask = (gdb_notifier.poll_fds + i)->revents;
-
-	      handle_file_event (file_ptr, mask);
-	      return 1;
-	    }
+	    break;
 	}
+
+      for (file_ptr = gdb_notifier.first_file_handler;
+	   file_ptr != NULL;
+	   file_ptr = file_ptr->next_file)
+	{
+	  if (file_ptr->fd == (gdb_notifier.poll_fds + i)->fd)
+	    break;
+	}
+      gdb_assert (file_ptr != NULL);
+
+      mask = (gdb_notifier.poll_fds + i)->revents;
+      handle_file_event (file_ptr, mask);
+      return 1;
 #else
       internal_error (__FILE__, __LINE__,
 		      _("use_poll without HAVE_POLL"));
@@ -780,11 +865,12 @@ gdb_wait_for_event (int block)
     }
   else
     {
-      for (file_ptr = gdb_notifier.first_file_handler;
-	   (file_ptr != NULL) && (num_found > 0);
-	   file_ptr = file_ptr->next_file)
+      /* See comment about even source fairness above.  */
+      int mask = 0;
+
+      do
 	{
-	  int mask = 0;
+	  file_ptr = get_next_file_handler_to_handle_and_advance ();
 
 	  if (FD_ISSET (file_ptr->fd, &gdb_notifier.ready_masks[0]))
 	    mask |= GDB_READABLE;
@@ -792,15 +878,11 @@ gdb_wait_for_event (int block)
 	    mask |= GDB_WRITABLE;
 	  if (FD_ISSET (file_ptr->fd, &gdb_notifier.ready_masks[2]))
 	    mask |= GDB_EXCEPTION;
-
-	  if (!mask)
-	    continue;
-	  else
-	    num_found--;
-
-	  handle_file_event (file_ptr, mask);
-	  return 1;
 	}
+      while (mask == 0);
+
+      handle_file_event (file_ptr, mask);
+      return 1;
     }
   return 0;
 }
@@ -818,8 +900,7 @@ create_async_signal_handler (sig_handler_func * proc,
 {
   async_signal_handler *async_handler_ptr;
 
-  async_handler_ptr =
-    (async_signal_handler *) xmalloc (sizeof (async_signal_handler));
+  async_handler_ptr = XNEW (async_signal_handler);
   async_handler_ptr->ready = 0;
   async_handler_ptr->next_handler = NULL;
   async_handler_ptr->proc = proc;
@@ -832,15 +913,6 @@ create_async_signal_handler (sig_handler_func * proc,
   return async_handler_ptr;
 }
 
-/* Call the handler from HANDLER immediately.  This function runs
-   signal handlers when returning to the event loop would be too
-   slow.  */
-void
-call_async_signal_handler (struct async_signal_handler *handler)
-{
-  (*handler->proc) (handler->client_data);
-}
-
 /* Mark the handler (ASYNC_HANDLER_PTR) as ready.  This information
    will be used when the handlers are invoked, after we have waited
    for some event.  The caller of this function is the interrupt
@@ -849,17 +921,40 @@ void
 mark_async_signal_handler (async_signal_handler * async_handler_ptr)
 {
   async_handler_ptr->ready = 1;
+  serial_event_set (async_signal_handlers_serial_event);
+}
+
+/* See event-loop.h.  */
+
+void
+clear_async_signal_handler (async_signal_handler *async_handler_ptr)
+{
+  async_handler_ptr->ready = 0;
+}
+
+/* See event-loop.h.  */
+
+int
+async_signal_handler_is_marked (async_signal_handler *async_handler_ptr)
+{
+  return async_handler_ptr->ready;
 }
 
 /* Call all the handlers that are ready.  Returns true if any was
    indeed ready.  */
+
 static int
 invoke_async_signal_handlers (void)
 {
   async_signal_handler *async_handler_ptr;
   int any_ready = 0;
 
-  /* Invoke ready handlers.  */
+  /* We're going to handle all pending signals, so no need to wake up
+     the event loop again the next time around.  Note this must be
+     cleared _before_ calling the callbacks, to avoid races.  */
+  serial_event_clear (async_signal_handlers_serial_event);
+
+  /* Invoke all ready handlers.  */
 
   while (1)
     {
@@ -874,6 +969,9 @@ invoke_async_signal_handlers (void)
 	break;
       any_ready = 1;
       async_handler_ptr->ready = 0;
+      /* Async signal handlers have no connection to whichever was the
+	 current UI, and thus always run on the main one.  */
+      current_ui = main_ui;
       (*async_handler_ptr->proc) (async_handler_ptr->client_data);
     }
 
@@ -917,7 +1015,7 @@ create_async_event_handler (async_event_handler_func *proc,
 {
   async_event_handler *h;
 
-  h = xmalloc (sizeof (*h));
+  h = XNEW (struct async_event_handler);
   h->ready = 0;
   h->next_handler = NULL;
   h->proc = proc;
@@ -1017,7 +1115,7 @@ create_timer (int milliseconds, timer_handler_func * proc,
 
   gettimeofday (&time_now, NULL);
 
-  timer_ptr = (struct gdb_timer *) xmalloc (sizeof (*timer_ptr));
+  timer_ptr = XNEW (struct gdb_timer);
   timer_ptr->when.tv_sec = time_now.tv_sec + delta.tv_sec;
   timer_ptr->when.tv_usec = time_now.tv_usec + delta.tv_usec;
   /* Carry?  */

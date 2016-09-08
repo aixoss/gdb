@@ -1,7 +1,7 @@
 /* *INDENT-OFF* */ /* ATTRIBUTE_PRINTF confuses indent, avoid running it
 		      for now.  */
 /* Basic, host-specific, and target-specific definitions for GDB.
-   Copyright (C) 1986-2015 Free Software Foundation, Inc.
+   Copyright (C) 1986-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -29,7 +29,6 @@
 
 #include <sys/types.h>
 #include <limits.h>
-#include <stdint.h>
 
 /* The libdecnumber library, on which GDB depends, includes a header file
    called gstdint.h instead of relying directly on stdint.h.  GDB, on the
@@ -71,6 +70,15 @@ enum compile_i_scope_types
     /* Do not wrap the expression,
        it has to provide function "_gdb_expr" on its own.  */
     COMPILE_I_RAW_SCOPE,
+
+    /* A printable expression scope.  Wrap an expression into a scope
+       suitable for the "compile print" command.  It uses the generic
+       function name "_gdb_expr".  COMPILE_I_PRINT_ADDRESS_SCOPE variant
+       is the usual one, taking address of the object.
+       COMPILE_I_PRINT_VALUE_SCOPE is needed for arrays where the array
+       name already specifies its address.  See get_out_value_type.  */
+    COMPILE_I_PRINT_ADDRESS_SCOPE,
+    COMPILE_I_PRINT_VALUE_SCOPE,
   };
 
 /* Just in case they're not defined in stdio.h.  */
@@ -101,9 +109,6 @@ enum compile_i_scope_types
 #define max(a, b) ((a) > (b) ? (a) : (b))
 #endif
 
-/* * Enable xdb commands if set.  */
-extern int xdb_commands;
-
 /* * Enable dbx commands if set.  */
 extern int dbx_commands;
 
@@ -120,66 +125,112 @@ extern char *python_libdir;
 /* * Search path for separate debug files.  */
 extern char *debug_file_directory;
 
-/* GDB has two methods for handling SIGINT.  When immediate_quit is
-   nonzero, a SIGINT results in an immediate longjmp out of the signal
-   handler.  Otherwise, SIGINT simply sets a flag; code that might
-   take a long time, and which ought to be interruptible, checks this
-   flag using the QUIT macro.
+/* GDB's SIGINT handler basically sets a flag; code that might take a
+   long time before it gets back to the event loop, and which ought to
+   be interruptible, checks this flag using the QUIT macro, which, if
+   GDB has the terminal, throws a quit exception.
+
+   In addition to setting a flag, the SIGINT handler also marks a
+   select/poll-able file descriptor as read-ready.  That is used by
+   interruptible_select in order to support interrupting blocking I/O
+   in a race-free manner.
 
    These functions use the extension_language_ops API to allow extension
    language(s) and GDB SIGINT handling to coexist seamlessly.  */
 
-/* * Clear the quit flag.  */
-extern void clear_quit_flag (void);
 /* * Evaluate to non-zero if the quit flag is set, zero otherwise.  This
    will clear the quit flag as a side effect.  */
 extern int check_quit_flag (void);
 /* * Set the quit flag.  */
 extern void set_quit_flag (void);
 
+/* The current quit handler (and its type).  This is called from the
+   QUIT macro.  See default_quit_handler below for default behavior.
+   Parts of GDB temporarily override this to e.g., completely suppress
+   Ctrl-C because it would not be safe to throw.  E.g., normally, you
+   wouldn't want to quit between a RSP command and its response, as
+   that would break the communication with the target, but you may
+   still want to intercept the Ctrl-C and offer to disconnect if the
+   user presses Ctrl-C multiple times while the target is stuck
+   waiting for the wedged remote stub.  */
+typedef void (quit_handler_ftype) (void);
+extern quit_handler_ftype *quit_handler;
+
+/* Override the current quit handler.  Sets NEW_QUIT_HANDLER as
+   current quit handler, and installs a cleanup that when run restores
+   the previous quit handler.  */
+struct cleanup *
+  make_cleanup_override_quit_handler (quit_handler_ftype *new_quit_handler);
+
+/* The default quit handler.  Checks whether Ctrl-C was pressed, and
+   if so:
+
+     - If GDB owns the terminal, throws a quit exception.
+
+     - If GDB does not own the terminal, forwards the Ctrl-C to the
+       target.
+*/
+extern void default_quit_handler (void);
+
 /* Flag that function quit should call quit_force.  */
 extern volatile int sync_quit_force_run;
 
-extern int immediate_quit;
-
 extern void quit (void);
 
-/* FIXME: cagney/2000-03-13: It has been suggested that the peformance
-   benefits of having a ``QUIT'' macro rather than a function are
-   marginal.  If the overhead of a QUIT function call is proving
-   significant then its calling frequency should probably be reduced
-   [kingdon].  A profile analyzing the current situtation is
-   needed.  */
+/* Helper for the QUIT macro.  */
 
-#define QUIT { \
-  if (check_quit_flag () || sync_quit_force_run) quit (); \
-  if (deprecated_interactive_hook) deprecated_interactive_hook (); \
-}
+extern void maybe_quit (void);
+
+/* Check whether a Ctrl-C was typed, and if so, call the current quit
+   handler.  */
+#define QUIT maybe_quit ()
+
+/* Set the serial event associated with the quit flag.  */
+extern void quit_serial_event_set (void);
+
+/* Clear the serial event associated with the quit flag.  */
+extern void quit_serial_event_clear (void);
 
 /* * Languages represented in the symbol table and elsewhere.
    This should probably be in language.h, but since enum's can't
    be forward declared to satisfy opaque references before their
-   actual definition, needs to be here.  */
+   actual definition, needs to be here.
+
+   The constants here are in priority order.  In particular,
+   demangling is attempted according to this order.
+
+   Note that there's ambiguity between the mangling schemes of some of
+   these languages, so some symbols could be successfully demangled by
+   several languages.  For that reason, the constants here are sorted
+   in the order we'll attempt demangling them.  For example: Java and
+   Rust use C++ mangling, so must come after C++; Ada must come last
+   (see ada_sniff_from_mangled_name).  */
 
 enum language
   {
     language_unknown,		/* Language not known */
     language_auto,		/* Placeholder for automatic setting */
     language_c,			/* C */
+    language_objc,		/* Objective-C */
     language_cplus,		/* C++ */
+    language_java,		/* Java */
     language_d,			/* D */
     language_go,		/* Go */
-    language_objc,		/* Objective-C */
-    language_java,		/* Java */
     language_fortran,		/* Fortran */
     language_m2,		/* Modula-2 */
     language_asm,		/* Assembly language */
     language_pascal,		/* Pascal */
-    language_ada,		/* Ada */
     language_opencl,		/* OpenCL */
+    language_rust,		/* Rust */
     language_minimal,		/* All other languages, minimal support only */
+    language_ada,		/* Ada */
     nr_languages
   };
+
+/* The number of bits needed to represent all languages, with enough
+   padding to allow for reasonable growth.  */
+#define LANGUAGE_BITS 5
+gdb_static_assert (nr_languages <= (1 << LANGUAGE_BITS));
 
 enum precision_type
   {
@@ -250,7 +301,7 @@ extern int annotation_level;	/* in stack.c */
    "const char *" in unistd.h, so we can't declare the argument
    as "char *".  */
 
-extern char *re_comp (const char *);
+EXTERN_C char *re_comp (const char *);
 
 /* From symfile.c */
 
@@ -277,15 +328,15 @@ extern void print_transfer_performance (struct ui_file *stream,
 
 typedef void initialize_file_ftype (void);
 
-extern char *gdb_readline (const char *);
-
 extern char *gdb_readline_wrapper (const char *);
 
 extern char *command_line_input (const char *, int, char *);
 
 extern void print_prompt (void);
 
-extern int input_from_terminal_p (void);
+struct ui;
+
+extern int input_interactive_p (struct ui *);
 
 extern int info_verbose;
 
@@ -401,6 +452,7 @@ struct command_line
 	struct
 	  {
 	    enum compile_i_scope_types scope;
+	    void *scope_data;
 	  }
 	compile;
       }
@@ -577,6 +629,25 @@ enum gdb_osabi
 extern double atof (const char *);	/* X3.159-1989  4.10.1.1 */
 #endif
 
+/* Enumerate the requirements a symbol has in order to be evaluated.
+   These are listed in order of "strength" -- a later entry subsumes
+   earlier ones.  This fine-grained distinction is important because
+   it allows for the evaluation of a TLS symbol during unwinding --
+   when unwinding one has access to registers, but not the frame
+   itself, because that is being constructed.  */
+
+enum symbol_needs_kind
+{
+  /* No special requirements -- just memory.  */
+  SYMBOL_NEEDS_NONE,
+
+  /* The symbol needs registers.  */
+  SYMBOL_NEEDS_REGISTERS,
+
+  /* The symbol needs a frame.  */
+  SYMBOL_NEEDS_FRAME
+};
+
 /* Dynamic target-system-dependent parameters for GDB.  */
 #include "gdbarch.h"
 
@@ -584,25 +655,6 @@ extern double atof (const char *);	/* X3.159-1989  4.10.1.1 */
    all known ISAs.  If it turns out to be too small, make it bigger.  */
 
 enum { MAX_REGISTER_SIZE = 64 };
-
-/* Static target-system-dependent parameters for GDB.  */
-
-/* * Number of bits in a char or unsigned char for the target machine.
-   Just like CHAR_BIT in <limits.h> but describes the target machine.  */
-#if !defined (TARGET_CHAR_BIT)
-#define TARGET_CHAR_BIT 8
-#endif
-
-/* * If we picked up a copy of CHAR_BIT from a configuration file
-   (which may get it by including <limits.h>) then use it to set
-   the number of bits in a host char.  If not, use the same size
-   as the target.  */
-
-#if defined (CHAR_BIT)
-#define HOST_CHAR_BIT CHAR_BIT
-#else
-#define HOST_CHAR_BIT TARGET_CHAR_BIT
-#endif
 
 /* In findvar.c.  */
 
@@ -637,10 +689,6 @@ extern int watchdog;
 /* * The name of the interpreter if specified on the command line.  */
 extern char *interpreter_p;
 
-/* If a given interpreter matches INTERPRETER_P then it should update
-   deprecated_init_ui_hook with the per-interpreter implementation.  */
-/* FIXME: deprecated_init_ui_hook should be moved here.  */
-
 struct target_waitstatus;
 struct cmd_list_element;
 
@@ -648,7 +696,6 @@ extern void (*deprecated_pre_add_symbol_hook) (const char *);
 extern void (*deprecated_post_add_symbol_hook) (void);
 extern void (*selected_frame_level_changed_hook) (int);
 extern int (*deprecated_ui_loop_hook) (int signo);
-extern void (*deprecated_init_ui_hook) (char *argv0);
 extern void (*deprecated_show_load_progress) (const char *section,
 					      unsigned long section_sent, 
 					      unsigned long section_size, 
@@ -667,7 +714,6 @@ extern void (*deprecated_readline_begin_hook) (char *, ...)
      ATTRIBUTE_FPTR_PRINTF_1;
 extern char *(*deprecated_readline_hook) (const char *);
 extern void (*deprecated_readline_end_hook) (void);
-extern void (*deprecated_register_changed_hook) (int regno);
 extern void (*deprecated_context_hook) (int);
 extern ptid_t (*deprecated_target_wait_hook) (ptid_t ptid,
 					      struct target_waitstatus *status,

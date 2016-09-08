@@ -1,6 +1,6 @@
 /* Basic C++ demangling support for GDB.
 
-   Copyright (C) 1991-2015 Free Software Foundation, Inc.
+   Copyright (C) 1991-2016 Free Software Foundation, Inc.
 
    Written by Fred Fish at Cygnus Support.
 
@@ -46,7 +46,7 @@
 static void demangle_command (char *, int);
 
 /* See documentation in gdb-demangle.h.  */
-int demangle = 1;
+int gdb1_demangle = 1;
 
 static void
 show_demangle (struct ui_file *file, int from_tty,
@@ -240,7 +240,7 @@ _initialize_demangler (void)
        libiberty_demanglers[ndems].demangling_style != unknown_demangling; 
        ndems++)
     ;
-  demangling_style_names = xcalloc (ndems + 1, sizeof (char *));
+  demangling_style_names = XCNEWVEC (const char *, ndems + 1);
   for (i = 0;
        libiberty_demanglers[i].demangling_style != unknown_demangling; 
        i++)
@@ -253,7 +253,7 @@ _initialize_demangler (void)
 	current_demangling_style_string = demangling_style_names[i];
     }
 
-  add_setshow_boolean_cmd ("demangle", class_support, &demangle, _("\
+  add_setshow_boolean_cmd ("demangle", class_support, &gdb1_demangle, _("\
 Set demangling of encoded C++/ObjC names when displaying symbols."), _("\
 Show demangling of encoded C++/ObjC names when displaying symbols."), NULL,
 			   NULL,

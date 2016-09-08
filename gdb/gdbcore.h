@@ -1,6 +1,6 @@
 /* Machine independent variables that describe the core file under GDB.
 
-   Copyright (C) 1986-2015 Free Software Foundation, Inc.
+   Copyright (C) 1986-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -28,6 +28,10 @@ struct regcache;
 #include "bfd.h"
 #include "exec.h"
 #include "target.h"
+
+/* Get the updated core_data after mmap */
+
+extern void mmap_core (struct target_section_table * coreinfo_data);
 
 /* Return the name of the executable file as a string.
    ERR nonzero means get error if there is none specified;
@@ -66,9 +70,9 @@ extern void read_code (CORE_ADDR memaddr, gdb_byte *myaddr, ssize_t len);
 
 extern LONGEST read_memory_integer (CORE_ADDR memaddr,
 				    int len, enum bfd_endian byte_order);
-extern int safe_read_memory_integer (CORE_ADDR memaddr, int len,
+extern CORE_ADDR safe_read_memory_integer (CORE_ADDR memaddr, int len,
 				     enum bfd_endian byte_order,
-				     LONGEST *return_value);
+				     CORE_ADDR *return_value);
 
 /* Read an unsigned integer from debugged memory, given address and
    number of bytes.  */
@@ -76,6 +80,9 @@ extern int safe_read_memory_integer (CORE_ADDR memaddr, int len,
 extern ULONGEST read_memory_unsigned_integer (CORE_ADDR memaddr,
 					      int len,
 					      enum bfd_endian byte_order);
+extern int safe_read_memory_unsigned_integer (CORE_ADDR memaddr, int len,
+					      enum bfd_endian byte_order,
+					      ULONGEST *return_value);
 
 /* Read an integer from debugged code memory, given address,
    number of bytes, and byte order for code.  */
@@ -101,10 +108,8 @@ extern void read_memory_string (CORE_ADDR, char *, int);
 
 CORE_ADDR read_memory_typed_address (CORE_ADDR addr, struct type *type);
 
-/* This takes a char *, not void *.  This is probably right, because
-   passing in an int * or whatever is wrong with respect to
-   byteswapping, alignment, different sizes for host vs. target types,
-   etc.  */
+/* Same as target_write_memory, but report an error if can't
+   write.  */
 
 extern void write_memory (CORE_ADDR memaddr, const gdb_byte *myaddr,
 			  ssize_t len);
@@ -138,7 +143,7 @@ extern void specify_exec_file_hook (void (*hook) (const char *filename));
 
 /* Binary File Diddler for the core file.  */
 
-extern bfd *core_bfd;
+extern bfd *core_bfd, *mmap_bfd;
 
 extern struct target_ops *core_target;
 
@@ -149,6 +154,13 @@ extern int write_files;
 extern void core_file_command (char *filename, int from_tty);
 
 extern void exec_file_attach (const char *filename, int from_tty);
+
+/* If the filename of the main executable is unknown, attempt to
+   determine it.  If a filename is determined, proceed as though
+   it was just specified with the "file" command.  Do nothing if
+   the filename of the main executable is already known.  */
+
+extern void exec_file_locate_attach (int pid, int from_tty);
 
 extern void exec_file_clear (int from_tty);
 

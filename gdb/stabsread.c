@@ -1,6 +1,6 @@
 /* Support routines for decoding "stabs" debugging information format.
 
-   Copyright (C) 1986-2015 Free Software Foundation, Inc.
+   Copyright (C) 1986-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -52,6 +52,29 @@
 #undef	EXTERN
 
 extern void _initialize_stabsread (void);
+int is_xlC_class;
+
+struct nextfield
+{
+  struct nextfield *next;
+
+  /* This is the raw visibility from the stab.  It is not checked
+     for being one of the visibilities we recognize, so code which
+     examines this field better be able to deal.  */
+  int visibility;
+
+  struct field field;
+};
+
+struct next_fnfieldlist
+{
+  struct next_fnfieldlist *next;
+  struct fn_fieldlist fn_fieldlist;
+};
+
+/* Check if all the types of the particluar pst must be saved. */
+int check_all_types;
+
 
 /* The routines that read and process a complete stabs for a C struct or 
    C++ class pass lists of data member fields and lists of member function
@@ -61,24 +84,8 @@ extern void _initialize_stabsread (void);
 
 struct field_info
   {
-    struct nextfield
-      {
-	struct nextfield *next;
-
-	/* This is the raw visibility from the stab.  It is not checked
-	   for being one of the visibilities we recognize, so code which
-	   examines this field better be able to deal.  */
-	int visibility;
-
-	struct field field;
-      }
-     *list;
-    struct next_fnfieldlist
-      {
-	struct next_fnfieldlist *next;
-	struct fn_fieldlist fn_fieldlist;
-      }
-     *fnlist;
+    struct nextfield *list;
+    struct next_fnfieldlist *fnlist;
   };
 
 static void
@@ -113,12 +120,36 @@ static struct type *read_enum_type (char **, struct type *, struct objfile *);
 static struct type *rs6000_builtin_type (int, struct objfile *);
 
 static int
+read_member_functions_check (struct field_info *, char **, struct type *,
+                             struct objfile *);
+ 
+static int
+read_xlC_member_functions (struct field_info *, char **, struct type *,
+                           struct objfile *);
+
+static int
 read_member_functions (struct field_info *, char **, struct type *,
 		       struct objfile *);
 
 static int
+read_struct_fields_check (struct field_info *, char **, struct type *,
+		    struct objfile *);
+
+static int
+read_xlC_struct_fields (struct field_info *, char **, struct type *,
+		    struct objfile *);
+			
+static int
 read_struct_fields (struct field_info *, char **, struct type *,
 		    struct objfile *);
+			
+static int
+read_xlC_baseclasses (struct field_info *, char **, struct type *,
+		  struct objfile *);
+ 
+static int
+read_baseclasses_check (struct field_info *, char **, struct type *,
+		  struct objfile *);
 
 static int
 read_baseclasses (struct field_info *, char **, struct type *,
@@ -167,7 +198,7 @@ static void
 reg_value_complaint (int regnum, int num_regs, const char *sym)
 {
   complaint (&symfile_complaints,
-	     _("register number %d too large (max %d) in symbol %s"),
+	     _("bad register number %d (max %d) in symbol %s"),
              regnum, num_regs - 1, sym);
 }
 
@@ -275,8 +306,10 @@ dbx_lookup_type (int typenums[2], struct objfile *objfile)
 	  if (old_len == 0)
 	    {
 	      type_vector_length = INITIAL_TYPE_VECTOR_LENGTH;
-	      type_vector = (struct type **)
-		xmalloc (type_vector_length * sizeof (struct type *));
+	      type_vector = XNEWVEC (struct type *, type_vector_length);
+              if (save_type_vector) {
+                all_type_vector = XNEWVEC (struct type *, type_vector_length);
+              }
 	    }
 	  while (index >= type_vector_length)
 	    {
@@ -287,8 +320,27 @@ dbx_lookup_type (int typenums[2], struct objfile *objfile)
 		      (type_vector_length * sizeof (struct type *)));
 	  memset (&type_vector[old_len], 0,
 		  (type_vector_length - old_len) * sizeof (struct type *));
-	}
-      return (&type_vector[index]);
+
+        if (save_type_vector)
+        {
+          all_type_vector = (struct type **)
+                xrealloc ((char *) all_type_vector,
+                          (type_vector_length * sizeof (struct type *)));
+          memset (&all_type_vector[old_len], 0,
+                  (type_vector_length - old_len) * sizeof (struct type *));
+         }
+      }
+
+     /* If the type has been declared in another pst which was
+       stored in all_type_vector, then assign the type to that
+       stored value. The check_all_types variable is set by
+       the cleanup_undefined_types_noname().  */
+
+     if (check_all_types && all_type_vector[index])
+     {
+        type_vector[index] = all_type_vector[index];
+     }
+     return (&type_vector[index]);
     }
   else
     {
@@ -397,8 +449,8 @@ patch_block_stabs (struct pending *symbols, struct pending_stabs *stabs,
 	      SYMBOL_DOMAIN (sym) = VAR_DOMAIN;
 	      SYMBOL_ACLASS_INDEX (sym) = LOC_OPTIMIZED_OUT;
 	      SYMBOL_SET_LINKAGE_NAME
-		(sym, obstack_copy0 (&objfile->objfile_obstack,
-				     name, pp - name));
+		(sym, (char *) obstack_copy0 (&objfile->objfile_obstack,
+					      name, pp - name));
 	      pp += 2;
 	      if (*(pp - 1) == 'F' || *(pp - 1) == 'f')
 		{
@@ -596,8 +648,9 @@ stab_reg_to_regnum (struct symbol *sym, struct gdbarch *gdbarch)
 {
   int regno = gdbarch_stab_reg_to_regnum (gdbarch, SYMBOL_VALUE (sym));
 
-  if (regno >= gdbarch_num_regs (gdbarch)
-		+ gdbarch_num_pseudo_regs (gdbarch))
+  if (regno < 0
+      || regno >= (gdbarch_num_regs (gdbarch)
+		   + gdbarch_num_pseudo_regs (gdbarch)))
     {
       reg_value_complaint (regno,
 			   gdbarch_num_regs (gdbarch)
@@ -715,7 +768,7 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
     normal:
       if (SYMBOL_LANGUAGE (sym) == language_cplus)
 	{
-	  char *name = alloca (p - string + 1);
+	  char *name = (char *) alloca (p - string + 1);
 
 	  memcpy (name, string, p - string);
 	  name[p - string] = '\0';
@@ -783,9 +836,9 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
 	       probably has the necessary code.  */
 
 	    dbl_type = objfile_type (objfile)->builtin_double;
-	    dbl_valu =
-	      obstack_alloc (&objfile->objfile_obstack,
-			     TYPE_LENGTH (dbl_type));
+	    dbl_valu
+	      = (gdb_byte *) obstack_alloc (&objfile->objfile_obstack,
+					    TYPE_LENGTH (dbl_type));
 	    store_typed_floating (dbl_valu, dbl_type, d);
 
 	    SYMBOL_TYPE (sym) = dbl_type;
@@ -867,7 +920,8 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
 	    SYMBOL_TYPE (sym) = create_array_type (NULL,
 				  objfile_type (objfile)->builtin_char,
 				  range_type);
-	    string_value = obstack_alloc (&objfile->objfile_obstack, ind + 1);
+	    string_value
+	      = (gdb_byte *) obstack_alloc (&objfile->objfile_obstack, ind + 1);
 	    memcpy (string_value, string_local, ind + 1);
 	    p++;
 
@@ -1330,9 +1384,11 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
 		      (char *) NULL);
       add_symbol_to_list (sym, &file_symbols);
 
-      if (synonym)
+      if (synonym || is_xlC_class)
 	{
 	  /* Clone the sym and then modify it.  */
+          /* synonym is not 't' in case of xlC classes or structures.
+            So clone if it is xlC defined class/struct/union. */
 	  struct symbol *typedef_sym = allocate_symbol (objfile);
 
 	  *typedef_sym = *sym;
@@ -1345,6 +1401,8 @@ define_symbol (CORE_ADDR valu, char *string, int desc, int type,
 			  SYMBOL_LINKAGE_NAME (sym),
 			  (char *) NULL);
 	  add_symbol_to_list (typedef_sym, &file_symbols);
+	  /* Initialize is_xlC_class to zero. */
+	  is_xlC_class = 0;
 	}
       break;
 
@@ -1621,15 +1679,16 @@ again:
 	  type_name = NULL;
 	  if (current_subfile->language == language_cplus)
 	    {
-	      char *new_name, *name = alloca (p - *pp + 1);
+	      char *new_name, *name = (char *) alloca (p - *pp + 1);
 
 	      memcpy (name, *pp, p - *pp);
 	      name[p - *pp] = '\0';
 	      new_name = cp_canonicalize_string (name);
 	      if (new_name != NULL)
 		{
-		  type_name = obstack_copy0 (&objfile->objfile_obstack,
-					     new_name, strlen (new_name));
+		  type_name
+		    = (char *) obstack_copy0 (&objfile->objfile_obstack,
+					      new_name, strlen (new_name));
 		  xfree (new_name);
 		}
 	    }
@@ -1807,10 +1866,10 @@ again:
         while (**pp && **pp != '#')
           {
             struct type *arg_type = read_type (pp, objfile);
-            struct type_list *new = alloca (sizeof (*new));
-            new->type = arg_type;
-            new->next = arg_types;
-            arg_types = new;
+            struct type_list *newobj = XALLOCA (struct type_list);
+            newobj->type = arg_type;
+            newobj->next = arg_types;
+            arg_types = newobj;
             num_args++;
           }
         if (**pp == '#')
@@ -1989,6 +2048,7 @@ again:
 	*dbx_lookup_type (typenums, objfile) = type;
       break;
 
+    case 'Y':			/* xlC class,struct and union type */
     case 's':			/* Struct type */
     case 'u':			/* Union type */
       {
@@ -1996,7 +2056,28 @@ again:
         type = dbx_alloc_type (typenums, objfile);
         switch (type_descriptor)
           {
-          case 's':
+          case 'Y':
+		    {
+		 	char *pr; 
+		 	int nbits;
+			pr = *pp;
+			is_xlC_class = read_huge_number (pp, 0, &nbits, 0);  
+			is_xlC_class = 1;
+			switch (**pp)
+			  {
+			  case 'c':
+			  case 's':
+ 	 		    type_code = TYPE_CODE_STRUCT;
+		  	    *pp = pr;
+		 	    break;
+			  case 'u':
+		  	    type_code = TYPE_CODE_UNION;
+		  	    *pp = pr;
+		  	    break;
+			  }
+		        break;
+		    }
+	  case 's':
             type_code = TYPE_CODE_STRUCT;
             break;
           case 'u':
@@ -2027,6 +2108,25 @@ again:
 	*dbx_lookup_type (typenums, objfile) = type;
       break;
 
+    case 'm':
+      /* type = dbx_alloc_type (typenums, objfile);
+      all_type_vector[typenums[1]] = type; */
+
+      all_type_index[all_type_count] = typenums[1];
+      all_type_count += 1;
+      break;
+
+    case 'M':
+     all_type_index[all_type_count] = typenums[1];
+     all_type_count += 1;
+     break;
+
+    case 'V':
+      type = read_type (pp, objfile);
+      type = make_cv_type (TYPE_CONST (type), 1, type,
+                           dbx_lookup_type (typenums, objfile));
+      break;
+
     default:
       --*pp;			/* Go back to the symbol in error.  */
       /* Particularly important if it was \0!  */
@@ -2035,13 +2135,20 @@ again:
 
   if (type == 0)
     {
-      warning (_("GDB internal error, type is NULL in stabsread.c."));
+      /* warning (_("GDB internal error, type is NULL in stabsread.c.")); */
       return error_type (pp, objfile);
     }
 
   /* Size specified in a type attribute overrides any other size.  */
   if (type_size != -1)
     TYPE_LENGTH (type) = (type_size + TARGET_CHAR_BIT - 1) / TARGET_CHAR_BIT;
+
+  /* Save all the types into all_type_vector if the current pst
+     has C_DECL variable declarations and is a dependent pst to
+     another pst.  */
+
+  if (save_type_vector && (typenums[1] > 0))
+   all_type_vector[typenums[1]] = type_vector[typenums[1]];
 
   return type;
 }
@@ -2054,8 +2161,8 @@ static const struct objfile_data *rs6000_builtin_type_data;
 static struct type *
 rs6000_builtin_type (int typenum, struct objfile *objfile)
 {
-  struct type **negative_types = objfile_data (objfile,
-					       rs6000_builtin_type_data);
+  struct type **negative_types
+    = (struct type **) objfile_data (objfile, rs6000_builtin_type_data);
 
   /* We recognize types numbered from -NUMBER_RECOGNIZED to -1.  */
 #define NUMBER_RECOGNIZED 34
@@ -2246,6 +2353,281 @@ stabs_method_name_from_physname (const char *physname)
   return method_name;
 }
 
+/* Wrapper function to read member functions from xlc and gcc compiled
+   binaries. */
+
+static int
+read_member_functions_check (struct field_info *fip, char **pp, struct type *type,
+                             struct objfile *objfile)
+{ 
+  if (!is_xlC_class)
+  	return read_member_functions (fip, pp, type, objfile);
+  else
+	return read_xlC_member_functions (fip, pp, type, objfile);
+}
+
+/* Read member function stabs info for xlC++ classes.  The form of each member
+   function data is:
+   
+   [FuncType MemberFuncAttrs : NAME : TypeID ;
+   
+   An example with two member functions is:
+   
+   u[f:func1__2C1Fi:4;o[f:func2__2C1Fv:4
+   
+   Where 'u' is access specifier for public and 'o' for protected.
+   
+   Returns 1 for success, 0 for failure.  */
+
+static int
+read_xlC_member_functions (struct field_info *fip, char **pp, struct type *type,
+                           struct objfile *objfile)
+{
+  int nfn_fields = 0;
+  int length = 0;
+  int i;
+  struct next_fnfield
+    {
+      struct next_fnfield *next;
+      struct fn_field fn_field;
+    }*sublist;
+  struct type *look_ahead_type;
+  struct next_fnfieldlist *new_fnlist;
+  struct next_fnfield *new_sublist;
+  char *main_fn_name;
+  char *p, *pr;
+
+  /* Process each list until we find something that is not a member function
+     or find the end of the functions.  */
+
+  while (**pp != ';')
+    {
+      /* We should be positioned at the start of the function name.
+         Scan forward to find the first '[' and if it is not the
+         first of delimiter, then this is not a member function.  */
+      p = *pp;
+      pr = *pp;
+
+      while (*p != ':')
+        {
+          if (*p == ';')
+	   break;
+
+          p++;
+        }
+
+      if  (*p == ';')
+       break;
+
+      while (*pr != '[')
+		pr++;
+	  
+	  /* If we do not hit a '[' that means this is not a member function. */
+	  if (*pr != '[')
+          break;
+
+      sublist = NULL;
+      look_ahead_type = NULL;
+      length = 0;
+
+      new_fnlist = (struct next_fnfieldlist *)
+      xmalloc (sizeof (struct next_fnfieldlist));
+      make_cleanup (xfree, new_fnlist);
+      make_cleanup (xfree, new_fnlist);
+      memset (new_fnlist, 0, sizeof (struct next_fnfieldlist));
+
+ 	  pr = *pp;
+      *pp = ++ p;
+      
+	  /* Make p point to the ':' after the mangled function name. */    
+      while (*p != ':')
+        {
+	  if (*p == ';')
+	   break;
+
+          p++;
+        }
+
+      if (*p == ';')
+	break;
+
+      /* This scenario should ideally not happen.  */
+      if (p < *pp)
+	return 0;
+
+      main_fn_name = savestring (*pp, p - *pp);      
+      new_fnlist->fn_fieldlist.name = main_fn_name;
+	  
+      do
+		{
+		 new_sublist =
+            (struct next_fnfield *) xmalloc (sizeof (struct next_fnfield));
+         make_cleanup (xfree, new_sublist);
+         memset (new_sublist, 0, sizeof (struct next_fnfield));
+         if (p < *pp)
+           return 0;
+         new_sublist->fn_field.physname =  savestring (*pp, p - *pp);
+	  
+		 do
+		   {
+			switch (*pr)
+			{
+			 case 'c':		
+			   /* Skip compiler generated flag if present for now. */
+			   break;
+			 case 'i':
+			   new_sublist->fn_field.is_private = 1;
+		       break;
+			 case 'o':
+ 		       new_sublist->fn_field.is_protected = 1;
+			   break;
+			 case 'u':
+ 		       new_sublist->fn_field.is_public = 1;
+ 		       break;
+			case 'v':		/* virtual function spec */
+		     {
+			  int nbits;
+ 			  /* Check if it is pure virtual.	*/
+ 			  if (pr[1] == 'p')
+ 			    ++pr;
+ 			  /* Since this is a virtual function, we need to read the
+ 			     virtual function index and store it in voffset.
+ 			     Skip the access specifier to read the index.*/   
+			  *pp = pr + 2;
+
+ 			  new_sublist->fn_field.voffset =
+ 			  (0x7fffffff & read_huge_number (pp, '[', &nbits, 0));
+ 			  if (nbits != 0)
+			    return 0;
+                          new_sublist->fn_field.voffset = new_sublist->fn_field.voffset*2+2;
+                          new_sublist->fn_field.fcontext = type;
+			  STABS_CONTINUE (pp, objfile);
+			  break;
+			 }
+			 default:
+ 			 break;
+			}
+ 		 ++pr;
+ 		 } while (*pr != '[');
+ 	
+		 /* Skip the function entry '[' */
+		 ++pr;
+ 	  
+		 /* Read the func type and member func attributes	*/
+		 do
+		  {
+ 		   switch (*pr)
+ 			 {
+			 case 'k':		
+			   /* 'const volatile' member functions.  */
+			   if (*(pr + 1) == 'V')
+				{
+				 new_sublist->fn_field.is_const = 1;
+			     new_sublist->fn_field.is_volatile = 1;
+				 ++pr;
+				}
+				/* const member functions. */
+			   else
+				{
+				 new_sublist->fn_field.is_const = 1;
+				 new_sublist->fn_field.is_volatile = 0;
+				}
+			   break;
+			 case 'V':           
+			   /* `volatile' member function.  */
+			   new_sublist->fn_field.is_const = 0;
+			   new_sublist->fn_field.is_volatile = 1;
+			   break;
+			 case 's':
+			   /* static member function.  */
+                           {
+                               char *p1, *p2;
+                               new_sublist->fn_field.voffset = VOFFSET_STATIC;
+                               new_sublist->fn_field.is_stub = 0;
+                               p1 = *pp;
+                               p2 = *pp;
+                               while ((*p1 != '_') && (*(p1+1) != '-'))
+                                   p1++;
+                               new_fnlist->fn_fieldlist.name = savestring(p2, p1 - p2);
+                            }
+			   break;
+			 case 'i':
+			   /* inline function, no support yet	*/
+			   break;
+			 case 'f':
+			   /* Member function	*/
+			   new_sublist->fn_field.is_const = 0;
+			   new_sublist->fn_field.is_volatile = 0;
+			   break;
+			 case 'c':
+			   /*constructor support to be added	*/
+			 case 'd':
+			   /*destructor support to be added	*/
+			   break;
+			 default:
+			   /*normal member function 	*/
+			   new_sublist->fn_field.is_const = 0;	/* Normal functions.  */
+			   new_sublist->fn_field.is_volatile = 0;
+			   break;
+			 }
+		   ++pr;
+		  } while (*pr != ':');
+
+	     /* Read the return type of function.	*/
+		 *pp = p + 1;
+		 new_sublist->fn_field.type = read_type (pp, objfile); 
+		 new_sublist->next = sublist;
+		 sublist = new_sublist;
+		 length++;
+		 STABS_CONTINUE (pp, objfile);
+		} while (**pp != ';' && **pp != '\0');
+      (*pp)++;
+	  STABS_CONTINUE (pp, objfile);
+      
+      is_xlcpp_class = 1;
+	  char *new_method_name =
+      stabs_method_name_from_physname (sublist->fn_field.physname);
+      is_xlcpp_class = 0;
+
+      if (new_method_name != NULL
+         && strcmp (new_method_name,
+                    new_fnlist->fn_fieldlist.name) != 0)
+        {
+          new_fnlist->fn_fieldlist.name = new_method_name;
+          xfree (main_fn_name);
+        }
+     else
+        xfree (new_method_name);
+    
+      new_fnlist->fn_fieldlist.fn_fields = (struct fn_field *)
+        obstack_alloc (&objfile->objfile_obstack,
+                      sizeof (struct fn_field) * length);
+      memset (new_fnlist->fn_fieldlist.fn_fields, 0,
+              sizeof (struct fn_field) * length);
+     
+	  /* Copy the fields of the particular member function. */
+	  for (i = length; (i--, sublist); sublist = sublist->next)
+        {
+          new_fnlist->fn_fieldlist.fn_fields[i] = sublist->fn_field;
+        }
+     new_fnlist->fn_fieldlist.length = length;
+     new_fnlist->next = fip->fnlist;
+     fip->fnlist = new_fnlist;
+     nfn_fields++;
+    }
+  if (nfn_fields)
+    {
+      ALLOCATE_CPLUS_STRUCT_TYPE (type);
+      TYPE_FN_FIELDLISTS (type) = (struct fn_fieldlist *)
+        TYPE_ALLOC (type, sizeof (struct fn_fieldlist) * nfn_fields);
+      memset (TYPE_FN_FIELDLISTS (type), 0,
+              sizeof (struct fn_fieldlist) * nfn_fields);
+      TYPE_NFN_FIELDS (type) = nfn_fields;
+    }
+
+  return 1;
+}
+   
 /* Read member function stabs info for C++ classes.  The form of each member
    function data is:
 
@@ -2302,10 +2684,8 @@ read_member_functions (struct field_info *fip, char **pp, struct type *type,
       look_ahead_type = NULL;
       length = 0;
 
-      new_fnlist = (struct next_fnfieldlist *)
-	xmalloc (sizeof (struct next_fnfieldlist));
+      new_fnlist = XCNEW (struct next_fnfieldlist);
       make_cleanup (xfree, new_fnlist);
-      memset (new_fnlist, 0, sizeof (struct next_fnfieldlist));
 
       if ((*pp)[0] == 'o' && (*pp)[1] == 'p' && is_cplus_marker ((*pp)[2]))
 	{
@@ -2344,10 +2724,8 @@ read_member_functions (struct field_info *fip, char **pp, struct type *type,
 
       do
 	{
-	  new_sublist =
-	    (struct next_fnfield *) xmalloc (sizeof (struct next_fnfield));
+	  new_sublist = XCNEW (struct next_fnfield);
 	  make_cleanup (xfree, new_sublist);
-	  memset (new_sublist, 0, sizeof (struct next_fnfield));
 
 	  /* Check for and handle cretinous dbx symbol name continuation!  */
 	  if (look_ahead_type == NULL)
@@ -2376,14 +2754,21 @@ read_member_functions (struct field_info *fip, char **pp, struct type *type,
 	      p++;
 	    }
 
-	  /* If this is just a stub, then we don't have the real name here.  */
+	  /* These are methods, not functions.  */
+	  if (TYPE_CODE (new_sublist->fn_field.type) == TYPE_CODE_FUNC)
+	    TYPE_CODE (new_sublist->fn_field.type) = TYPE_CODE_METHOD;
+	  else
+	    gdb_assert (TYPE_CODE (new_sublist->fn_field.type)
+			== TYPE_CODE_METHOD);
 
+	  /* If this is just a stub, then we don't have the real name here.  */
 	  if (TYPE_STUB (new_sublist->fn_field.type))
 	    {
-	      if (!TYPE_DOMAIN_TYPE (new_sublist->fn_field.type))
-		TYPE_DOMAIN_TYPE (new_sublist->fn_field.type) = type;
+	      if (!TYPE_SELF_TYPE (new_sublist->fn_field.type))
+		set_type_self_type (new_sublist->fn_field.type, type);
 	      new_sublist->fn_field.is_stub = 1;
 	    }
+
 	  new_sublist->fn_field.physname = savestring (*pp, p - *pp);
 	  *pp = p + 1;
 
@@ -2628,17 +3013,16 @@ read_member_functions (struct field_info *fip, char **pp, struct type *type,
 
 	      /* Create a new fn_fieldlist for the destructors.  */
 
-	      destr_fnlist = (struct next_fnfieldlist *)
-		xmalloc (sizeof (struct next_fnfieldlist));
+	      destr_fnlist = XCNEW (struct next_fnfieldlist);
 	      make_cleanup (xfree, destr_fnlist);
-	      memset (destr_fnlist, 0, sizeof (struct next_fnfieldlist));
+
 	      destr_fnlist->fn_fieldlist.name
 		= obconcat (&objfile->objfile_obstack, "~",
 			    new_fnlist->fn_fieldlist.name, (char *) NULL);
 
-	      destr_fnlist->fn_fieldlist.fn_fields = (struct fn_field *)
-		obstack_alloc (&objfile->objfile_obstack,
-			       sizeof (struct fn_field) * has_destructor);
+	      destr_fnlist->fn_fieldlist.fn_fields =
+		XOBNEWVEC (&objfile->objfile_obstack,
+			   struct fn_field, has_destructor);
 	      memset (destr_fnlist->fn_fieldlist.fn_fields, 0,
 		  sizeof (struct fn_field) * has_destructor);
 	      tmp_sublist = sublist;
@@ -2708,8 +3092,9 @@ read_member_functions (struct field_info *fip, char **pp, struct type *type,
 					     dem_opname, 0);
 	      if (ret)
 		new_fnlist->fn_fieldlist.name
-		  = obstack_copy0 (&objfile->objfile_obstack,
-				   dem_opname, strlen (dem_opname));
+		  = ((const char *)
+		     obstack_copy0 (&objfile->objfile_obstack, dem_opname,
+				    strlen (dem_opname)));
 	      xfree (main_fn_name);
 	    }
 
@@ -2850,8 +3235,56 @@ read_one_struct_field (struct field_info *fip, char **pp, char *p,
 {
   struct gdbarch *gdbarch = get_objfile_arch (objfile);
 
-  fip->list->field.name =
-    obstack_copy0 (&objfile->objfile_obstack, *pp, p - *pp);
+  /* In case of xlC, the stabstring representing a structure is
+	 different than that of gcc. So, add checks related to xlC
+	 generated stabstrings here. */
+	 
+  if (is_xlC_class)
+	{	
+		do
+		{
+			switch (**pp)
+			{
+			case 'c':		/* skip GEN SPEC compiler flag if present */
+			   break;
+			case 'i':
+			   fip->list->visibility = VISIBILITY_PRIVATE;
+			   break;
+			case 'o':
+			   fip->list->visibility = VISIBILITY_PROTECTED;
+			   break;
+			case 'u':
+			   fip->list->visibility = VISIBILITY_PUBLIC;
+			   break;
+			case 'a':		/* skip anonymous union member */
+			case 's':		/* static data member */
+			case 'p':		/* Member is vtbl pointer */
+			case 'b':		/* Member is vbase pointer */
+			case 'r':		/* Member is vbase self pointer */
+			   break;
+			case 'N':
+			   {
+			    /* Nested class. The following number is the type number
+				   of the nested class/struct. Nested class support should
+				   be improved. */
+				
+				++(*pp);
+			    fip->list->field.type = read_type (pp, objfile);
+			    SET_FIELD_BITPOS (fip->list->field,(long) -2);
+				fip->list = fip->list->next;
+			    ++(*pp);
+			    return;
+			   }
+			}
+			++(*pp);
+		} while (**pp != ':');
+
+	/* Skip Past the ':' */
+	++(*pp);
+    }
+  if (strncmp(*pp, "__vfp", 5) != 0)
+     fip->list->field.name =
+       (const char *) obstack_copy0 (&objfile->objfile_obstack, *pp, p - *pp);
   *pp = p + 1;
 
   /* This means we have a visibility for a field coming.  */
@@ -2860,7 +3293,7 @@ read_one_struct_field (struct field_info *fip, char **pp, char *p,
       (*pp)++;
       fip->list->visibility = *(*pp)++;
     }
-  else
+  else if(!is_xlC_class)
     {
       /* normal dbx-style format, no explicit visibility */
       fip->list->visibility = VISIBILITY_PUBLIC;
@@ -2967,6 +3400,192 @@ read_one_struct_field (struct field_info *fip, char **pp, char *p,
 }
 
 
+static int
+read_struct_fields_check (struct field_info *fip, char **pp, struct type *type,
+		    struct objfile *objfile)
+{ 
+  if (!is_xlC_class)
+  	return read_struct_fields (fip, pp, type, objfile);
+  else
+	return read_xlC_struct_fields (fip, pp, type, objfile);
+}
+
+/* Read struct or class data fields. This is specific for xlC
+   generated stabstrings as it is very different when compared
+   to that of gcc. A field is of the form -
+
+   (VISIBILITY) : NAME : MemberAttrs : Field ;
+
+   At the end, we see a semicolon instead of a field.
+   
+   Example for 2 fields shown below:
+   
+   (u:field1:-1,0,32;i:field2:-1,32,32;
+   
+   where, '(' indicated start of class or struct.
+      
+   The optional VISIBILITY is one of:
+
+   'i' (VISIBILITY_PRIVATE)
+   'o' (VISIBILITY_PROTECTED)
+   'u' (VISIBILITY_PUBLIC)
+
+   or nothing, for C style fields with public visibility.
+
+   Returns 1 for success, 0 for failure.  */
+
+static int
+read_xlC_struct_fields (struct field_info *fip, char **pp, struct type *type,
+		    struct objfile *objfile)
+{
+  char *p;
+  struct nextfield *xlnew;
+  char *p1, *p2;
+  int is_vft = 0;
+
+
+  /* We better set p right now, in case there are no fields at all...    */
+
+  p = *pp;
+
+  /* Read each data member type until we find the terminating ';' at the end of
+     the data member list, or break for some other reason such as finding the
+     start of the member function list.  */
+
+  while (**pp != ';' && **pp != '\0')
+    {
+      STABS_CONTINUE (pp, objfile);
+      /* Get space to record the next field's data.  */
+      xlnew = (struct nextfield *) xmalloc (sizeof (struct nextfield));
+      make_cleanup (xfree, xlnew);
+      memset (xlnew, 0, sizeof (struct nextfield));
+      xlnew->next = fip->list;
+      fip->list = xlnew;
+
+      /* Get the field name.  */
+      p = *pp;
+
+      /* If is starts with CPLUS_MARKER it is a special abbreviation,
+         unless the CPLUS_MARKER is followed by an underscore, in
+         which case it is just the name of an anonymous type, which we
+         should handle like any other type name.  */
+
+      if (is_cplus_marker (p[0]) && p[1] != '_')
+	{
+	  if (!read_cpp_abbrev (fip, pp, type, objfile))
+	    return 0;
+	  continue;
+	}
+
+      /* Look for the ':' that separates the field name from the field
+         values.  Data members are delimited by a single ':', while member
+         functions are delimited by a single '['.  When we hit the member
+         functions (if any), terminate scan loop and return. Friend classes
+	 are defined by the use of '(' and friend function by the use of
+	 ']'. If we encounter these symbols, ignore for now as we do not
+	 know how to deal with them yet.
+	 FIXME: friend class/function support */
+		 
+	  while (*p != ':' && *p != '\0')
+	{
+	  if (*p == ']' || *p == '(')
+	   {
+	    /* Friend class/function encountered. Skip it for now until
+	       support added.  */
+	    while (*p != ';')
+	      p++;
+
+	    p++;
+	    *pp = p;
+
+	    /* Check if we hit the end of stabstring.  */
+	    if (**pp == ';')
+	     return 1;
+
+	    continue;
+	  }
+
+          if (*p == ';')
+	   {
+	    /* Check if we hit the end of stabstring.  */
+	    if (*(p+1) == ';')
+	     {
+	      fip->list =  xlnew->next;
+	      return 1;
+	     }
+	    break;
+	   }
+	
+	  p++;
+	  if (*p == '[')
+	   break;
+          if ((*p == '_' && *(p+1) == '_') && (!strncmp (p, "__vft", 5)))
+          {
+              p1 = p;
+              p2 = p;
+              while (*p1 != ':')
+                  p1++;
+        
+              fip->list->field.name = savestring (p2, p1 - p2);
+          }
+	}
+      if (*p == '\0')
+	return 0;
+
+      if (*p == ';')
+	goto read_struct_field;
+
+      /* Check to see if we have hit the member functions yet.  */
+      if (p[0] == '[')
+	{
+	  break;
+	}
+       
+	  /* Skip the first ':'.  */
+	  p++;
+
+	  /* Make p point to the second ':' after the NAME of the data member. */
+	  while (!(*p == ':' || *p == ';'))
+		p++;
+	  
+	  read_struct_field:
+          p1 = *pp;
+          p2 = p;
+          while (*p1 != '_' && *p1 != '\0')
+                p1++;
+          if (!strncmp(p1, "__vft", 5))
+              is_vft = 1;
+          while (*p1 != ',')
+               p1++;
+          if (!((*(p1 + 1) != '0') && (is_vft == 1))) {
+             read_one_struct_field (fip, pp, p, type, objfile);
+              is_vft = 0;
+          } else {
+              xlnew = fip->list;
+              fip->list = fip->list->next;
+              xfree (xlnew);
+              xlnew = NULL;
+              while (**pp != ';')
+                 (*pp)++;
+              (*pp)++;
+              while (*p != ':')
+                  p++;
+              p++;
+              while (*p != ':')
+                 p++;
+          }
+    }
+  if (p[0] == '['&& (p[1] == 'f' || p[1] == 'c' || p[1] == 'd'))
+    {
+      /* (the deleted) chill the list of fields: the last entry (at
+         the head) is a partially constructed entry which we now
+         scrub.  */
+      fip->list = fip->list->next;
+    }
+  return 1;
+}
+
+
 /* Read struct or class data fields.  They have the form:
 
    NAME : [VISIBILITY] TYPENUM , BITPOS , BITSIZE ;
@@ -2992,7 +3611,7 @@ read_struct_fields (struct field_info *fip, char **pp, struct type *type,
 		    struct objfile *objfile)
 {
   char *p;
-  struct nextfield *new;
+  struct nextfield *newobj;
 
   /* We better set p right now, in case there are no fields at all...    */
 
@@ -3008,11 +3627,11 @@ read_struct_fields (struct field_info *fip, char **pp, struct type *type,
     {
       STABS_CONTINUE (pp, objfile);
       /* Get space to record the next field's data.  */
-      new = (struct nextfield *) xmalloc (sizeof (struct nextfield));
-      make_cleanup (xfree, new);
-      memset (new, 0, sizeof (struct nextfield));
-      new->next = fip->list;
-      fip->list = new;
+      newobj = XCNEW (struct nextfield);
+      make_cleanup (xfree, newobj);
+
+      newobj->next = fip->list;
+      fip->list = newobj;
 
       /* Get the field name.  */
       p = *pp;
@@ -3057,6 +3676,182 @@ read_struct_fields (struct field_info *fip, char **pp, struct type *type,
     }
   return 1;
 }
+
+/* Wrapper function to read basecleasses from xlc and gcc
+   compiled binaries.  */
+
+static int
+read_baseclasses_check (struct field_info *fip, char **pp,
+                         struct type *type, struct objfile *objfile)
+{ 
+  if (!is_xlC_class)
+  	return read_baseclasses (fip, pp, type, objfile);
+  else
+	return read_xlC_baseclasses (fip, pp, type, objfile);
+}
+ 
+/* *INDENT-OFF* */
+/* The stabs for xlC++ derived classes contain baseclass information
+   after the total size. This function is called when we encounter
+   added information which will be present before the class delimiter
+   '('. The number of the baseclasses is indicated by the number of
+   ':' predent before the class delimiter '('.
+
+   Immediately following the class key 'c' will be the visibility for the
+   baseclass, followed by the offset in bytes from start of the class.
+   The type of base class will be indicated after ':'. In such a manner,
+   info for all the base classes is seperated by a ',' until the
+   '(' delimiter is encountered.
+
+   A typical example, with two base classes, would be "ci0:5,u12:7".
+						       ^^^ ^ ^^  ^
+	Class Key to indicate xlC class _______________||| | ||  |
+	Visibility specifier____________________________|| | ||  |
+	Offset in bytes from start of class______________| | ||  |
+	Type number for base class ________________________| ||  |
+	Visibility specifier ________________________________||  |
+	Offset in bytes from start of class __________________|  |
+	Type number of base class _______________________________|
+
+  Return 1 for success, 0 for (error-type-inducing) failure.  */
+/* *INDENT-ON* */
+static int
+read_xlC_baseclasses (struct field_info *fip, char **pp, struct type *type,
+		  struct objfile *objfile)
+{
+  int i;
+  int nbase_classes = 0;
+  struct nextfield *xlnew;
+  char *p, *base_spec;
+
+  /* return 0 if not a class union or struct */
+  if (!((**pp == 'c') || (**pp == 'u') || (**pp == 's')))
+	return 0;
+  /* if class key is 'c', then declare it as a class. */	
+  else if (**pp == 'c')
+	TYPE_DECLARED_CLASS (type) = 1;
+
+  /* Skip Past the class key */
+  ++(*pp);
+  
+  /* Skip past OptPBV flag */
+  if (**pp == 'V')		/* Class called by value */
+  ++(*pp);
+	
+  /* no need for this function if no base classes */
+  if (**pp == '(')
+	{
+	 (*pp)++;
+	 return 1;
+	}
+	 
+  p = *pp;
+  while (*p != '(')
+	p++;
+	
+  base_spec = savestring (*pp, p - *pp);
+  *pp = base_spec;
+  
+  ALLOCATE_CPLUS_STRUCT_TYPE (type);
+  {
+    while (*base_spec != '\0')
+   {
+     if (*(base_spec++) == ':')
+		nbase_classes++;
+   }
+	TYPE_N_BASECLASSES (type) =  nbase_classes;
+  }
+
+  int num_bytes = B_BYTES (TYPE_N_BASECLASSES (type));
+  char *pointer;
+
+  pointer = (char *) TYPE_ALLOC (type, num_bytes);
+  TYPE_FIELD_VIRTUAL_BITS (type) = (B_TYPE *) pointer;
+  
+  B_CLRALL (TYPE_FIELD_VIRTUAL_BITS (type), TYPE_N_BASECLASSES (type));
+  
+  for (i = 0; i < TYPE_N_BASECLASSES (type); i++)
+    {
+      xlnew = (struct nextfield *) xmalloc (sizeof (struct nextfield));
+      make_cleanup (xfree, xlnew);
+      memset (xlnew, 0, sizeof (struct nextfield));
+      xlnew->next = fip->list;
+      fip->list = xlnew;
+      FIELD_BITSIZE (xlnew->field) = 0;	/* This should be an unpacked
+					   field!  */
+
+      STABS_CONTINUE (pp, objfile);
+      switch (**pp)
+		{
+		case 'u':
+		case 'i':
+		case 'o':
+		  /* Nothing to do as this is Access Specifier and not virtual  */
+		  break;
+		case 'v':
+		  /* Inheritance is virtual */
+			SET_TYPE_FIELD_VIRTUAL (type, i);
+			(*pp)++;
+		  break;
+		default:
+		  /* Unknown character.  Complain and treat it as non-virtual.  */
+		  {
+			complaint (&symfile_complaints,
+				   _("Unknown virtual character `%c' for baseclass"),
+				   **pp);
+		  }
+		}
+		
+		switch (**pp)
+		{
+		case 'u':
+		   xlnew->visibility = VISIBILITY_PUBLIC;
+		   break;
+		case 'i':
+		  xlnew->visibility = VISIBILITY_PRIVATE;
+		  break; 
+		case 'o':
+		  xlnew->visibility = VISIBILITY_PROTECTED;
+		  break;
+		default:
+		  /* Bad visibility format.  Complain and treat it as
+			 public.  */
+		  {
+			complaint (&symfile_complaints,
+				   _("Unknown visibility `%c' for baseclass"),
+				   xlnew->visibility);
+			xlnew->visibility = VISIBILITY_PUBLIC;
+		  }
+		}
+
+       {
+		int nbits;
+		++(*pp);
+
+		/* The remaining value is the byte offset of the portion of the object
+		   corresponding to this baseclass.  Always zero in the absence of
+		   multiple inheritance.  */
+
+		SET_FIELD_BITPOS (xlnew->field, read_huge_number (pp, ':', &nbits, 0));
+		if (nbits != 0)
+		  return 0;
+                xlnew->field.loc.bitpos = xlnew->field.loc.bitpos * 8;
+       }
+
+      /* The last piece of baseclass information is the type of the
+         base class.  Read it, and remember it's type name as this
+         field's name.  */
+
+      xlnew->field.type = read_type (pp, objfile);
+      xlnew->field.name = type_name_no_tag (xlnew->field.type);
+
+      /* Skip trailing ';' and bump count of number of fields seen.  */
+      if ((**pp == ',') || (**pp == '('))
+		(*pp)++;
+    }
+  *pp = p + 1;
+  return 1;
+}
 /* *INDENT-OFF* */
 /* The stabs for C++ derived classes contain baseclass information which
    is marked by a '!' character after the total size.  This function is
@@ -3090,7 +3885,7 @@ read_baseclasses (struct field_info *fip, char **pp, struct type *type,
 		  struct objfile *objfile)
 {
   int i;
-  struct nextfield *new;
+  struct nextfield *newobj;
 
   if (**pp != '!')
     {
@@ -3130,12 +3925,12 @@ read_baseclasses (struct field_info *fip, char **pp, struct type *type,
 
   for (i = 0; i < TYPE_N_BASECLASSES (type); i++)
     {
-      new = (struct nextfield *) xmalloc (sizeof (struct nextfield));
-      make_cleanup (xfree, new);
-      memset (new, 0, sizeof (struct nextfield));
-      new->next = fip->list;
-      fip->list = new;
-      FIELD_BITSIZE (new->field) = 0;	/* This should be an unpacked
+      newobj = XCNEW (struct nextfield);
+      make_cleanup (xfree, newobj);
+
+      newobj->next = fip->list;
+      fip->list = newobj;
+      FIELD_BITSIZE (newobj->field) = 0;	/* This should be an unpacked
 					   field!  */
 
       STABS_CONTINUE (pp, objfile);
@@ -3157,8 +3952,8 @@ read_baseclasses (struct field_info *fip, char **pp, struct type *type,
 	}
       ++(*pp);
 
-      new->visibility = *(*pp)++;
-      switch (new->visibility)
+      newobj->visibility = *(*pp)++;
+      switch (newobj->visibility)
 	{
 	case VISIBILITY_PRIVATE:
 	case VISIBILITY_PROTECTED:
@@ -3170,8 +3965,8 @@ read_baseclasses (struct field_info *fip, char **pp, struct type *type,
 	  {
 	    complaint (&symfile_complaints,
 		       _("Unknown visibility `%c' for baseclass"),
-		       new->visibility);
-	    new->visibility = VISIBILITY_PUBLIC;
+		       newobj->visibility);
+	    newobj->visibility = VISIBILITY_PUBLIC;
 	  }
 	}
 
@@ -3182,7 +3977,7 @@ read_baseclasses (struct field_info *fip, char **pp, struct type *type,
 	   corresponding to this baseclass.  Always zero in the absence of
 	   multiple inheritance.  */
 
-	SET_FIELD_BITPOS (new->field, read_huge_number (pp, ',', &nbits, 0));
+	SET_FIELD_BITPOS (newobj->field, read_huge_number (pp, ',', &nbits, 0));
 	if (nbits != 0)
 	  return 0;
       }
@@ -3191,8 +3986,8 @@ read_baseclasses (struct field_info *fip, char **pp, struct type *type,
          base class.  Read it, and remember it's type name as this
          field's name.  */
 
-      new->field.type = read_type (pp, objfile);
-      new->field.name = type_name_no_tag (new->field.type);
+      newobj->field.type = read_type (pp, objfile);
+      newobj->field.name = type_name_no_tag (newobj->field.type);
 
       /* Skip trailing ';' and bump count of number of fields seen.  */
       if (**pp == ';')
@@ -3260,7 +4055,7 @@ read_tilde_fields (struct field_info *fip, char **pp, struct type *type,
 	      return 0;
 	    }
 
-	  TYPE_VPTR_BASETYPE (type) = t;
+	  set_type_vptr_basetype (type, t);
 	  if (type == t)	/* Our own class provides vtbl ptr.  */
 	    {
 	      for (i = TYPE_NFIELDS (t) - 1;
@@ -3272,7 +4067,7 @@ read_tilde_fields (struct field_info *fip, char **pp, struct type *type,
 		  if (!strncmp (name, vptr_name, sizeof (vptr_name) - 2)
 		      && is_cplus_marker (name[sizeof (vptr_name) - 2]))
 		    {
-		      TYPE_VPTR_FIELDNO (type) = i;
+		      set_type_vptr_fieldno (type, i);
 		      goto gotit;
 		    }
 		}
@@ -3285,7 +4080,7 @@ read_tilde_fields (struct field_info *fip, char **pp, struct type *type,
 	    }
 	  else
 	    {
-	      TYPE_VPTR_FIELDNO (type) = TYPE_VPTR_FIELDNO (t);
+	      set_type_vptr_fieldno (type, TYPE_VPTR_FIELDNO (t));
 	    }
 
 	gotit:
@@ -3293,6 +4088,53 @@ read_tilde_fields (struct field_info *fip, char **pp, struct type *type,
 	}
     }
   return 1;
+}
+
+static int
+read_xlC_vptr (struct field_info *fip, char *pp, struct type *type,
+                   struct objfile *objfile)
+{
+  int i;
+  /* STABS_CONTINUE (pp, objfile); */
+  
+  if (!is_xlC_class)
+     return 0;
+
+  while (*pp != '\0' && (*pp != ':' && *pp != '('))
+         (pp)++; 
+   if (*pp == '(') {
+      set_type_vptr_basetype (type, type);
+      for (i = TYPE_NFIELDS (type) - 1;
+            i >= TYPE_N_BASECLASSES (type);
+            --i)
+      {
+          const char *name = TYPE_FIELD_NAME (type, i);
+          if (!strncmp (name, "__vft", 5)) 
+          {
+               set_type_vptr_fieldno (type, i);
+               return 0;
+          }
+      } 
+    } else {
+       if (*pp == ':') {
+           struct type *t;
+           (pp)++;
+           t = read_type (&pp, objfile);
+           set_type_vptr_basetype (type, t);
+           for (i = TYPE_NFIELDS (type) - 1;
+                i >= TYPE_N_BASECLASSES (type);
+                --i)
+           {
+                const char *name = TYPE_FIELD_NAME (type, i);
+                if (!strncmp (name, "__vft", 5))
+                {
+                    set_type_vptr_fieldno (type, i);
+                    return 0;
+                }
+           }
+       }
+    }
+    return 1;
 }
 
 static int
@@ -3493,10 +4335,18 @@ read_struct_type (char **pp, struct type *type, enum type_code type_code,
 {
   struct cleanup *back_to;
   struct field_info fi;
+  char *p = *pp;
 
   fi.list = NULL;
   fi.fnlist = NULL;
 
+  /* For xlC compiled binaries, derived classes having virtual base are
+	 pre defined as an empty struct. So, check if number of fields in the
+	 struct is 0, if it is do not complain and initialize again.*/
+	
+  if (is_xlC_class && ! TYPE_NFIELDS(type))
+	goto initialize_type ; 
+	
   /* When describing struct/union/class types in stabs, G++ always drops
      all qualifications from the name.  So if you've got:
        struct A { ... struct B { ... }; ... };
@@ -3517,6 +4367,7 @@ read_struct_type (char **pp, struct type *type, enum type_code type_code,
       return type;
     }
 
+  initialize_type:
   back_to = make_cleanup (null_cleanup, 0);
 
   INIT_CPLUS_SPECIFIC (type);
@@ -3542,16 +4393,17 @@ read_struct_type (char **pp, struct type *type, enum type_code type_code,
      member functions, attach them to the type, and then read any tilde
      field (baseclass specifier for the class holding the main vtable).  */
 
-  if (!read_baseclasses (&fi, pp, type, objfile)
-      || !read_struct_fields (&fi, pp, type, objfile)
+  if (!read_baseclasses_check (&fi, pp, type, objfile)
+      || !read_struct_fields_check (&fi, pp, type, objfile)
       || !attach_fields_to_type (&fi, type, objfile)
-      || !read_member_functions (&fi, pp, type, objfile)
+      || !read_member_functions_check (&fi, pp, type, objfile)
       || !attach_fn_fields_to_type (&fi, type)
       || !read_tilde_fields (&fi, pp, type, objfile))
     {
       type = error_type (pp, objfile);
     }
 
+  read_xlC_vptr (&fi, p, type, objfile);
   do_cleanups (back_to);
   return (type);
 }
@@ -3673,7 +4525,7 @@ read_enum_type (char **pp, struct type *type,
       p = *pp;
       while (*p != ':')
 	p++;
-      name = obstack_copy0 (&objfile->objfile_obstack, *pp, p - *pp);
+      name = (char *) obstack_copy0 (&objfile->objfile_obstack, *pp, p - *pp);
       *pp = p + 1;
       n = read_huge_number (pp, ',', &nbits, 0);
       if (nbits != 0)
@@ -4290,8 +5142,7 @@ read_args (char **pp, int end, struct objfile *objfile, int *nargsp,
       *varargsp = 0;
     }
 
-  rval = (struct field *) xmalloc (n * sizeof (struct field));
-  memset (rval, 0, n * sizeof (struct field));
+  rval = XCNEWVEC (struct field, n);
   for (i = 0; i < n; i++)
     rval[i].type = types[i];
   *nargsp = n;
@@ -4327,8 +5178,8 @@ common_block_start (char *name, struct objfile *objfile)
     }
   common_block = local_symbols;
   common_block_i = local_symbols ? local_symbols->nsyms : 0;
-  common_block_name = obstack_copy0 (&objfile->objfile_obstack,
-				     name, strlen (name));
+  common_block_name = (char *) obstack_copy0 (&objfile->objfile_obstack, name,
+					      strlen (name));
 }
 
 /* Process a N_ECOMM symbol.  */
@@ -4343,7 +5194,7 @@ common_block_end (struct objfile *objfile)
      symbol for the common block name for later fixup.  */
   int i;
   struct symbol *sym;
-  struct pending *new = 0;
+  struct pending *newobj = 0;
   struct pending *next;
   int j;
 
@@ -4366,7 +5217,7 @@ common_block_end (struct objfile *objfile)
        next = next->next)
     {
       for (j = 0; j < next->nsyms; j++)
-	add_symbol_to_list (next->symbol[j], &new);
+	add_symbol_to_list (next->symbol[j], &newobj);
     }
 
   /* Copy however much of COMMON_BLOCK we need.  If COMMON_BLOCK is
@@ -4375,9 +5226,9 @@ common_block_end (struct objfile *objfile)
 
   if (common_block != NULL)
     for (j = common_block_i; j < common_block->nsyms; j++)
-      add_symbol_to_list (common_block->symbol[j], &new);
+      add_symbol_to_list (common_block->symbol[j], &newobj);
 
-  SYMBOL_TYPE (sym) = (struct type *) new;
+  SYMBOL_TYPE (sym) = (struct type *) newobj;
 
   /* Should we be putting local_symbols back to what it was?
      Does it matter?  */
@@ -4473,7 +5324,7 @@ add_undefined_type (struct type *type, int typenums[2])
 static void
 cleanup_undefined_types_noname (struct objfile *objfile)
 {
-  int i;
+  int i, j, is_index = 0;;
 
   for (i = 0; i < noname_undefs_length; i++)
     {
@@ -4481,6 +5332,43 @@ cleanup_undefined_types_noname (struct objfile *objfile)
       struct type **type;
 
       type = dbx_lookup_type (nat.typenums, objfile);
+
+      /* If a type is undefined, it may be because of the use of xlc
+      -qfuncsect or gcc --function-sections option which causes types
+      to be defined in one pst while references to it may happen in
+      another pst.
+
+      So, if we find an undefined type, check it against the
+      all_type_vector and assign it to the previously defined type.  */
+
+      if (nat.type == *type && TYPE_CODE (*type) == TYPE_CODE_UNDEF)
+      {
+       /* if (all_type_vector)
+          check_all_types = 1;
+        type = dbx_lookup_type(nat.typenums, objfile);
+        check_all_types = 0;
+       */
+       
+         if (all_type_vector) { 
+            for (j = 0; j < all_type_count; j++) {
+              if (nat.typenums[1] == all_type_index[j])
+                {
+                    is_index =1 ;
+                    break;               
+                }
+              }
+            if( is_index != 1)
+            {
+               check_all_types = 1;
+               type = dbx_lookup_type(nat.typenums, objfile);
+               check_all_types = 0;
+            }    
+         }
+       }
+
+
+   if (is_index !=1)
+   {
       if (nat.type != *type && TYPE_CODE (*type) != TYPE_CODE_UNDEF)
         {
           /* The instance flags of the undefined type are still unset,
@@ -4491,6 +5379,7 @@ cleanup_undefined_types_noname (struct objfile *objfile)
           replace_type (nat.type, *type);
         }
     }
+  }
 
   noname_undefs_length = 0;
 }
@@ -4547,9 +5436,9 @@ cleanup_undefined_types_1 (void)
 		struct pending *ppt;
 		int i;
 		/* Name of the type, without "struct" or "union".  */
-		const char *typename = TYPE_TAG_NAME (*type);
+		const char *type_name = TYPE_TAG_NAME (*type);
 
-		if (typename == NULL)
+		if (type_name == NULL)
 		  {
 		    complaint (&symfile_complaints, _("need a type name"));
 		    break;
@@ -4567,7 +5456,7 @@ cleanup_undefined_types_1 (void)
 			    && (TYPE_INSTANCE_FLAGS (*type) ==
 				TYPE_INSTANCE_FLAGS (SYMBOL_TYPE (sym)))
 			    && strcmp (SYMBOL_LINKAGE_NAME (sym),
-				       typename) == 0)
+				       type_name) == 0)
                           replace_type (*type, SYMBOL_TYPE (sym));
 		      }
 		  }
@@ -4835,13 +5724,11 @@ _initialize_stabsread (void)
 
   undef_types_allocated = 20;
   undef_types_length = 0;
-  undef_types = (struct type **)
-    xmalloc (undef_types_allocated * sizeof (struct type *));
+  undef_types = XNEWVEC (struct type *, undef_types_allocated);
 
   noname_undefs_allocated = 20;
   noname_undefs_length = 0;
-  noname_undefs = (struct nat *)
-    xmalloc (noname_undefs_allocated * sizeof (struct nat));
+  noname_undefs = XNEWVEC (struct nat, noname_undefs_allocated);
 
   stab_register_index = register_symbol_register_impl (LOC_REGISTER,
 						       &stab_register_funcs);

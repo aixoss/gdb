@@ -1,5 +1,5 @@
 /* IQ2000-specific support for 32-bit ELF.
-   Copyright (C) 2003-2015 Free Software Foundation, Inc.
+   Copyright (C) 2003-2016 Free Software Foundation, Inc.
 
    This file is part of BFD, the Binary File Descriptor library.
 
@@ -34,11 +34,11 @@ static reloc_howto_type iq2000_elf_howto_table [] =
 
   HOWTO (R_IQ2000_NONE,		     /* type */
 	 0,			     /* rightshift */
-	 2,			     /* size (0 = byte, 1 = short, 2 = long) */
-	 32,			     /* bitsize */
+	 3,			     /* size (0 = byte, 1 = short, 2 = long) */
+	 0,			     /* bitsize */
 	 FALSE,			     /* pc_relative */
 	 0,			     /* bitpos */
-	 complain_overflow_bitfield, /* complain_on_overflow */
+	 complain_overflow_dont,     /* complain_on_overflow */
 	 bfd_elf_generic_reloc,	     /* special_function */
 	 "R_IQ2000_NONE",	     /* name */
 	 FALSE,			     /* partial_inplace */
@@ -437,7 +437,7 @@ iq2000_info_to_howto_rela (bfd * abfd ATTRIBUTE_UNUSED,
     default:
       if (r_type >= (unsigned int) R_IQ2000_max)
 	{
-	  _bfd_error_handler (_("%A: invalid IQ2000 reloc number: %d"), abfd, r_type);
+	  _bfd_error_handler (_("%B: invalid IQ2000 reloc number: %d"), abfd, r_type);
 	  r_type = 0;
 	}
       cache_ptr->howto = & iq2000_elf_howto_table [r_type];
@@ -461,7 +461,7 @@ iq2000_elf_check_relocs (bfd *abfd,
   const Elf_Internal_Rela *rel_end;
   bfd_boolean changed = FALSE;
 
-  if (info->relocatable)
+  if (bfd_link_relocatable (info))
     return TRUE;
 
   symtab_hdr = &elf_tdata (abfd)->symtab_hdr;
@@ -645,7 +645,7 @@ iq2000_elf_relocate_section (bfd *		     output_bfd ATTRIBUTE_UNUSED,
 	RELOC_AGAINST_DISCARDED_SECTION (info, input_bfd, input_section,
 					 rel, 1, relend, howto, 0, contents);
 
-      if (info->relocatable)
+      if (bfd_link_relocatable (info))
 	continue;
 
       switch (r_type)
@@ -678,13 +678,13 @@ iq2000_elf_relocate_section (bfd *		     output_bfd ATTRIBUTE_UNUSED,
 	  switch (r)
 	    {
 	    case bfd_reloc_overflow:
-	      r = info->callbacks->reloc_overflow
+	      (*info->callbacks->reloc_overflow)
 		(info, (h ? &h->root : NULL), name, howto->name,
 		 (bfd_vma) 0, input_bfd, input_section, rel->r_offset);
 	      break;
 
 	    case bfd_reloc_undefined:
-	      r = info->callbacks->undefined_symbol
+	      (*info->callbacks->undefined_symbol)
 		(info, name, input_bfd, input_section, rel->r_offset, TRUE);
 	      break;
 
@@ -706,11 +706,8 @@ iq2000_elf_relocate_section (bfd *		     output_bfd ATTRIBUTE_UNUSED,
 	    }
 
 	  if (msg)
-	    r = info->callbacks->warning
-	      (info, msg, name, input_bfd, input_section, rel->r_offset);
-
-	  if (! r)
-	    return FALSE;
+	    (*info->callbacks->warning) (info, msg, name, input_bfd,
+					 input_section, rel->r_offset);
 	}
     }
 

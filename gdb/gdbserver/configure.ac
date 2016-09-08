@@ -1,5 +1,5 @@
 dnl Autoconf configure script for GDB server.
-dnl Copyright (C) 2000-2015 Free Software Foundation, Inc.
+dnl Copyright (C) 2000-2016 Free Software Foundation, Inc.
 dnl
 dnl This file is part of GDB.
 dnl
@@ -26,6 +26,7 @@ AC_CONFIG_HEADER(config.h:config.in)
 AM_MAINTAINER_MODE
 
 AC_PROG_CC
+AC_PROG_CXX
 AC_GNU_SOURCE
 AC_SYS_LARGEFILE
 
@@ -38,6 +39,9 @@ AC_PROG_RANLIB
 AC_ARG_PROGRAM
 
 AC_HEADER_STDC
+
+# See if we are building with C++, and substitute COMPILER.
+GDB_AC_BUILD_WITH_CXX
 
 # Set the 'development' global.
 . $srcdir/../../bfd/development.sh
@@ -90,9 +94,13 @@ AC_CHECK_HEADERS(sgtty.h termio.h termios.h sys/reg.h string.h dnl
 		 fcntl.h signal.h sys/file.h dnl
 		 sys/ioctl.h netinet/in.h sys/socket.h netdb.h dnl
 		 netinet/tcp.h arpa/inet.h)
-AC_CHECK_FUNCS(pread pwrite pread64)
+AC_FUNC_FORK
+AC_CHECK_FUNCS(getauxval pread pwrite pread64 setns)
 
 GDB_AC_COMMON
+
+# Check the return and argument types of ptrace.
+GDB_AC_PTRACE
 
 # Check for UST
 ustlibs=""
@@ -142,47 +150,13 @@ fi
 AC_SUBST(ustlibs)
 AC_SUBST(ustinc)
 
-AC_ARG_ENABLE(werror,
-  AS_HELP_STRING([--enable-werror], [treat compile warnings as errors]),
-  [case "${enableval}" in
-     yes | y) ERROR_ON_WARNING="yes" ;;
-     no | n)  ERROR_ON_WARNING="no" ;;
-     *) AC_MSG_ERROR(bad value ${enableval} for --enable-werror) ;;
-   esac])
-
-# Enable -Werror by default when using gcc.  Turn it off for releases.
-if test "${GCC}" = yes -a -z "${ERROR_ON_WARNING}" && $development; then
-    ERROR_ON_WARNING=yes
-fi
-
-WERROR_CFLAGS=""
-if test "${ERROR_ON_WARNING}" = yes ; then
-    WERROR_CFLAGS="-Werror"
-fi
-
-build_warnings="-Wall -Wdeclaration-after-statement -Wpointer-arith \
--Wformat-nonliteral -Wno-char-subscripts -Wempty-body"
-
-WARN_CFLAGS=""
-if test "x$GCC" = xyes
-then
-    AC_MSG_CHECKING(compiler warning flags)
-    # Separate out the -Werror flag as some files just cannot be
-    # compiled with it enabled.
-    for w in ${build_warnings}; do
-	case $w in
-	-Werr*) WERROR_CFLAGS=-Werror ;;
-	*) # Check that GCC accepts it
-	    saved_CFLAGS="$CFLAGS"
-	    CFLAGS="$CFLAGS $w"
-	    AC_TRY_COMPILE([],[],WARN_CFLAGS="${WARN_CFLAGS} $w",)
-	    CFLAGS="$saved_CFLAGS"
-	esac
-    done
-    AC_MSG_RESULT(${WARN_CFLAGS} ${WERROR_CFLAGS})
-fi
-AC_SUBST(WARN_CFLAGS)
-AC_SUBST(WERROR_CFLAGS)
+AM_GDB_WARNINGS
+dnl The codebase isn't clean yet with this flag.
+case " $WARN_CFLAGS " in
+*" -Wmissing-prototypes "*)
+  WARN_CFLAGS="$WARN_CFLAGS -Wno-missing-prototypes"
+  ;;
+esac
 
 dnl dladdr is glibc-specific.  It is used by thread-db.c but only for
 dnl debugging messages.  It lives in -ldl which is handled below so we don't
@@ -193,16 +167,34 @@ LIBS="$LIBS -ldl"
 AC_CHECK_FUNCS(dladdr)
 LIBS="$old_LIBS"
 
+libiberty_INIT
+
 AC_CHECK_DECLS([strerror, perror, vasprintf, vsnprintf])
+
+AC_CHECK_MEMBERS([struct stat.st_blocks, struct stat.st_blksize])
 
 AC_CHECK_TYPES(socklen_t, [], [],
 [#include <sys/types.h>
 #include <sys/socket.h>
 ])
 
-AC_CHECK_TYPES([Elf32_auxv_t, Elf64_auxv_t], [], [],
-#include <elf.h>
-)
+case "${target}" in
+  *-android*)
+    # Starting with NDK version 9, <elf.h> actually includes definitions
+    # of Elf32_auxv_t and Elf64_auxv_t. But sadly, <elf.h> includes
+    # <sys/exec_elf.h> which defines some of the ELF types incorrectly,
+    # leading to conflicts with the defintions from <linux/elf.h>.
+    # This makes it impossible for us to include both <elf.h> and
+    # <linux/elf.h>, which means that, in practice, we do not have
+    # access to Elf32_auxv_t and Elf64_auxv_t on this platform.
+    # Therefore, do not try to auto-detect availability, as it would
+    # get it wrong on this platform.
+    ;;
+  *)
+    AC_CHECK_TYPES([Elf32_auxv_t, Elf64_auxv_t], [], [],
+    #include <elf.h>
+    )
+esac
 
 ACX_PKGVERSION([GDB])
 ACX_BUGURL([http://www.gnu.org/software/gdb/bugs/])
@@ -226,6 +218,20 @@ got it
                     [gdb_cv_i386_is_x86_64=no])
                     CPPFLAGS="$save_CPPFLAGS"])
     ;;
+
+  x86_64-*-linux*)
+    AC_CACHE_CHECK([if building for x32], [gdb_cv_x86_is_x32],
+		   [save_CPPFLAGS="$CPPFLAGS"
+		    CPPFLAGS="$CPPFLAGS $CFLAGS"
+		    AC_EGREP_CPP([got it], [
+#if __x86_64__ && __ILP32__
+got it
+#endif
+		 ], [gdb_cv_x86_is_x32=yes],
+		    [gdb_cv_x86_is_x32=no])
+		    CPPFLAGS="$save_CPPFLAGS"])
+    ;;
+
   m68k-*-*)
     AC_CACHE_CHECK([if building for Coldfire], [gdb_cv_m68k_is_coldfire],
       	           [save_CPPFLAGS="$CPPFLAGS"
@@ -241,6 +247,10 @@ got it
 esac
 
 . ${srcdir}/configure.srv
+
+# Add in the common host objects.
+. ${srcdir}/../common/common.host
+srv_host_obs="$common_host_obs"
 
 if test "${srv_mingwce}" = "yes"; then
   LIBS="$LIBS -lws2"
@@ -306,6 +316,7 @@ if test "$ac_cv_header_sys_procfs_h" = yes; then
   BFD_HAVE_SYS_PROCFS_TYPE(lwpid_t)
   BFD_HAVE_SYS_PROCFS_TYPE(psaddr_t)
   BFD_HAVE_SYS_PROCFS_TYPE(prgregset_t)
+  BFD_HAVE_SYS_PROCFS_TYPE(prfpregset_t)
   BFD_HAVE_SYS_PROCFS_TYPE(elf_fpregset_t)
 fi
 
@@ -385,7 +396,7 @@ if test "$srv_xmlfiles" != ""; then
   done
 fi
 
-GDBSERVER_DEPFILES="$srv_regobj $srv_tgtobj $srv_hostio_err_objs $srv_thread_depfiles"
+GDBSERVER_DEPFILES="$srv_regobj $srv_tgtobj $srv_hostio_err_objs $srv_thread_depfiles $srv_host_obs"
 GDBSERVER_LIBS="$srv_libs"
 
 dnl Check whether the target supports __sync_*_compare_and_swap.
@@ -476,9 +487,11 @@ if test x"$STDINT_H" != x; then
 fi
 AC_SUBST(GNULIB_STDINT_H)
 
-AC_OUTPUT(Makefile,
+AC_CONFIG_FILES([Makefile],
 [case x$CONFIG_HEADERS in
 xconfig.h:config.in)
 echo > stamp-h ;;
 esac
 ])
+
+AC_OUTPUT

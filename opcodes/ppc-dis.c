@@ -1,5 +1,5 @@
 /* ppc-dis.c -- Disassemble PowerPC instructions
-   Copyright (C) 1994-2015 Free Software Foundation, Inc.
+   Copyright (C) 1994-2016 Free Software Foundation, Inc.
    Written by Ian Lance Taylor, Cygnus Support
 
    This file is part of the GNU opcodes library.
@@ -51,9 +51,9 @@ struct ppc_mopt {
 };
 
 struct ppc_mopt ppc_opts[] = {
-  { "403",     (PPC_OPCODE_PPC | PPC_OPCODE_403),
+  { "403",     PPC_OPCODE_PPC | PPC_OPCODE_403,
     0 },
-  { "405",     (PPC_OPCODE_PPC | PPC_OPCODE_403 | PPC_OPCODE_405),
+  { "405",     PPC_OPCODE_PPC | PPC_OPCODE_403 | PPC_OPCODE_405,
     0 },
   { "440",     (PPC_OPCODE_PPC | PPC_OPCODE_BOOKE | PPC_OPCODE_440
 		| PPC_OPCODE_ISEL | PPC_OPCODE_RFMCI),
@@ -64,42 +64,48 @@ struct ppc_mopt ppc_opts[] = {
   { "476",     (PPC_OPCODE_PPC | PPC_OPCODE_ISEL | PPC_OPCODE_440
 		| PPC_OPCODE_476 | PPC_OPCODE_POWER4 | PPC_OPCODE_POWER5),
     0 },
-  { "601",     (PPC_OPCODE_PPC | PPC_OPCODE_601),
+  { "601",     PPC_OPCODE_PPC | PPC_OPCODE_601,
     0 },
-  { "603",     (PPC_OPCODE_PPC),
+  { "603",     PPC_OPCODE_PPC,
     0 },
-  { "604",     (PPC_OPCODE_PPC),
+  { "604",     PPC_OPCODE_PPC,
     0 },
-  { "620",     (PPC_OPCODE_PPC | PPC_OPCODE_64),
+  { "620",     PPC_OPCODE_PPC | PPC_OPCODE_64,
     0 },
-  { "7400",    (PPC_OPCODE_PPC | PPC_OPCODE_ALTIVEC),
+  { "7400",    PPC_OPCODE_PPC | PPC_OPCODE_ALTIVEC,
     0 },
-  { "7410",    (PPC_OPCODE_PPC | PPC_OPCODE_ALTIVEC),
+  { "7410",    PPC_OPCODE_PPC | PPC_OPCODE_ALTIVEC,
     0 },
-  { "7450",    (PPC_OPCODE_PPC | PPC_OPCODE_ALTIVEC),
+  { "7450",    PPC_OPCODE_PPC | PPC_OPCODE_7450 | PPC_OPCODE_ALTIVEC,
     0 },
-  { "7455",    (PPC_OPCODE_PPC | PPC_OPCODE_ALTIVEC),
+  { "7455",    PPC_OPCODE_PPC | PPC_OPCODE_ALTIVEC,
     0 },
-  { "750cl",   (PPC_OPCODE_PPC | PPC_OPCODE_PPCPS)
+  { "750cl",   PPC_OPCODE_PPC | PPC_OPCODE_750 | PPC_OPCODE_PPCPS
     , 0 },
+  { "821",     PPC_OPCODE_PPC | PPC_OPCODE_860,
+    0 },
+  { "850",     PPC_OPCODE_PPC | PPC_OPCODE_860,
+    0 },
+  { "860",     PPC_OPCODE_PPC | PPC_OPCODE_860,
+    0 },
   { "a2",      (PPC_OPCODE_PPC | PPC_OPCODE_ISEL | PPC_OPCODE_POWER4
 		| PPC_OPCODE_POWER5 | PPC_OPCODE_CACHELCK | PPC_OPCODE_64
 		| PPC_OPCODE_A2),
     0 },
-  { "altivec", (PPC_OPCODE_PPC),
+  { "altivec", PPC_OPCODE_PPC,
     PPC_OPCODE_ALTIVEC | PPC_OPCODE_ALTIVEC2 },
   { "any",     0,
     PPC_OPCODE_ANY },
-  { "booke",   (PPC_OPCODE_PPC | PPC_OPCODE_BOOKE),
+  { "booke",   PPC_OPCODE_PPC | PPC_OPCODE_BOOKE,
     0 },
-  { "booke32", (PPC_OPCODE_PPC | PPC_OPCODE_BOOKE),
+  { "booke32", PPC_OPCODE_PPC | PPC_OPCODE_BOOKE,
     0 },
   { "cell",    (PPC_OPCODE_PPC | PPC_OPCODE_64 | PPC_OPCODE_POWER4
 		| PPC_OPCODE_CELL | PPC_OPCODE_ALTIVEC),
     0 },
-  { "com",     (PPC_OPCODE_COMMON),
+  { "com",     PPC_OPCODE_COMMON,
     0 },
-  { "e300",    (PPC_OPCODE_PPC | PPC_OPCODE_E300),
+  { "e300",    PPC_OPCODE_PPC | PPC_OPCODE_E300,
     0 },
   { "e500",    (PPC_OPCODE_PPC | PPC_OPCODE_BOOKE | PPC_OPCODE_SPE
 		| PPC_OPCODE_ISEL | PPC_OPCODE_EFS | PPC_OPCODE_BRLOCK
@@ -132,9 +138,9 @@ struct ppc_mopt ppc_opts[] = {
 		| PPC_OPCODE_PMR | PPC_OPCODE_CACHELCK | PPC_OPCODE_RFMCI
 		| PPC_OPCODE_E500),
     0 },
-  { "efs",     (PPC_OPCODE_PPC | PPC_OPCODE_EFS),
+  { "efs",     PPC_OPCODE_PPC | PPC_OPCODE_EFS,
     0 },
-  { "power4",  (PPC_OPCODE_PPC | PPC_OPCODE_64 | PPC_OPCODE_POWER4),
+  { "power4",  PPC_OPCODE_PPC | PPC_OPCODE_64 | PPC_OPCODE_POWER4,
     0 },
   { "power5",  (PPC_OPCODE_PPC | PPC_OPCODE_64 | PPC_OPCODE_POWER4
 		| PPC_OPCODE_POWER5),
@@ -151,21 +157,27 @@ struct ppc_mopt ppc_opts[] = {
 		| PPC_OPCODE_POWER7 | PPC_OPCODE_POWER8 | PPC_OPCODE_HTM
 		| PPC_OPCODE_ALTIVEC | PPC_OPCODE_ALTIVEC2 | PPC_OPCODE_VSX),
     0 },
-  { "ppc",     (PPC_OPCODE_PPC),
+  { "power9",  (PPC_OPCODE_PPC | PPC_OPCODE_ISEL | PPC_OPCODE_64
+		| PPC_OPCODE_POWER4 | PPC_OPCODE_POWER5 | PPC_OPCODE_POWER6
+		| PPC_OPCODE_POWER7 | PPC_OPCODE_POWER8 | PPC_OPCODE_POWER9
+		| PPC_OPCODE_HTM | PPC_OPCODE_ALTIVEC | PPC_OPCODE_ALTIVEC2
+		| PPC_OPCODE_VSX | PPC_OPCODE_VSX3 ),
     0 },
-  { "ppc32",   (PPC_OPCODE_PPC),
+  { "ppc",     PPC_OPCODE_PPC,
     0 },
-  { "ppc64",   (PPC_OPCODE_PPC | PPC_OPCODE_64),
+  { "ppc32",   PPC_OPCODE_PPC,
     0 },
-  { "ppc64bridge", (PPC_OPCODE_PPC | PPC_OPCODE_64_BRIDGE),
+  { "ppc64",   PPC_OPCODE_PPC | PPC_OPCODE_64,
     0 },
-  { "ppcps",   (PPC_OPCODE_PPC | PPC_OPCODE_PPCPS),
+  { "ppc64bridge", PPC_OPCODE_PPC | PPC_OPCODE_64_BRIDGE,
     0 },
-  { "pwr",     (PPC_OPCODE_POWER),
+  { "ppcps",   PPC_OPCODE_PPC | PPC_OPCODE_PPCPS,
     0 },
-  { "pwr2",    (PPC_OPCODE_POWER | PPC_OPCODE_POWER2),
+  { "pwr",     PPC_OPCODE_POWER,
     0 },
-  { "pwr4",    (PPC_OPCODE_PPC | PPC_OPCODE_64 | PPC_OPCODE_POWER4),
+  { "pwr2",    PPC_OPCODE_POWER | PPC_OPCODE_POWER2,
+    0 },
+  { "pwr4",    PPC_OPCODE_PPC | PPC_OPCODE_64 | PPC_OPCODE_POWER4,
     0 },
   { "pwr5",    (PPC_OPCODE_PPC | PPC_OPCODE_64 | PPC_OPCODE_POWER4
 		| PPC_OPCODE_POWER5),
@@ -185,18 +197,27 @@ struct ppc_mopt ppc_opts[] = {
 		| PPC_OPCODE_POWER7 | PPC_OPCODE_POWER8 | PPC_OPCODE_HTM
 		| PPC_OPCODE_ALTIVEC | PPC_OPCODE_ALTIVEC2 | PPC_OPCODE_VSX),
     0 },
-  { "pwrx",    (PPC_OPCODE_POWER | PPC_OPCODE_POWER2),
+  { "pwr9",    (PPC_OPCODE_PPC | PPC_OPCODE_ISEL | PPC_OPCODE_64
+		| PPC_OPCODE_POWER4 | PPC_OPCODE_POWER5 | PPC_OPCODE_POWER6
+		| PPC_OPCODE_POWER7 | PPC_OPCODE_POWER8 | PPC_OPCODE_POWER9
+		| PPC_OPCODE_HTM | PPC_OPCODE_ALTIVEC | PPC_OPCODE_ALTIVEC2
+		| PPC_OPCODE_VSX | PPC_OPCODE_VSX3 ),
     0 },
-  { "spe",     (PPC_OPCODE_PPC | PPC_OPCODE_EFS),
+  { "pwrx",    PPC_OPCODE_POWER | PPC_OPCODE_POWER2,
+    0 },
+  { "spe",     PPC_OPCODE_PPC | PPC_OPCODE_EFS,
     PPC_OPCODE_SPE },
   { "titan",   (PPC_OPCODE_PPC | PPC_OPCODE_BOOKE | PPC_OPCODE_PMR
 		| PPC_OPCODE_RFMCI | PPC_OPCODE_TITAN),
     0 },
-  { "vle",     (PPC_OPCODE_PPC | PPC_OPCODE_ISEL | PPC_OPCODE_VLE),
+  { "vle",     (PPC_OPCODE_PPC | PPC_OPCODE_BOOKE| PPC_OPCODE_SPE
+		| PPC_OPCODE_ISEL | PPC_OPCODE_EFS | PPC_OPCODE_BRLOCK
+		| PPC_OPCODE_PMR | PPC_OPCODE_CACHELCK | PPC_OPCODE_RFMCI
+		| PPC_OPCODE_E500),
     PPC_OPCODE_VLE },
-  { "vsx",     (PPC_OPCODE_PPC),
-    PPC_OPCODE_VSX },
-  { "htm",     (PPC_OPCODE_PPC),
+  { "vsx",     PPC_OPCODE_PPC,
+    PPC_OPCODE_VSX | PPC_OPCODE_VSX3 },
+  { "htm",     PPC_OPCODE_PPC,
     PPC_OPCODE_HTM },
 };
 
@@ -297,7 +318,7 @@ powerpc_init_dialect (struct disassemble_info *info)
       dialect = ppc_parse_cpu (dialect, &sticky, "vle");
       break;
     default:
-      dialect = ppc_parse_cpu (dialect, &sticky, "power8") | PPC_OPCODE_ANY;
+      dialect = ppc_parse_cpu (dialect, &sticky, "power9") | PPC_OPCODE_ANY;
     }
 
   arg = info->disassembler_options;
@@ -341,37 +362,41 @@ disassemble_init_powerpc (struct disassemble_info *info)
   int i;
   unsigned short last;
 
-  i = powerpc_num_opcodes;
-  while (--i >= 0)
+  if (powerpc_opcd_indices[PPC_OPCD_SEGS] == 0)
     {
-      unsigned op = PPC_OP (powerpc_opcodes[i].opcode);
 
-      powerpc_opcd_indices[op] = i;
-    }
+      i = powerpc_num_opcodes;
+      while (--i >= 0)
+        {
+          unsigned op = PPC_OP (powerpc_opcodes[i].opcode);
 
-  last = powerpc_num_opcodes;
-  for (i = PPC_OPCD_SEGS; i > 0; --i)
-    {
-      if (powerpc_opcd_indices[i] == 0)
-	powerpc_opcd_indices[i] = last;
-      last = powerpc_opcd_indices[i];
-    }
+          powerpc_opcd_indices[op] = i;
+        }
 
-  i = vle_num_opcodes;
-  while (--i >= 0)
-    {
-      unsigned op = VLE_OP (vle_opcodes[i].opcode, vle_opcodes[i].mask);
-      unsigned seg = VLE_OP_TO_SEG (op);
+      last = powerpc_num_opcodes;
+      for (i = PPC_OPCD_SEGS; i > 0; --i)
+        {
+          if (powerpc_opcd_indices[i] == 0)
+	    powerpc_opcd_indices[i] = last;
+          last = powerpc_opcd_indices[i];
+        }
 
-      vle_opcd_indices[seg] = i;
-    }
+      i = vle_num_opcodes;
+      while (--i >= 0)
+        {
+          unsigned op = VLE_OP (vle_opcodes[i].opcode, vle_opcodes[i].mask);
+          unsigned seg = VLE_OP_TO_SEG (op);
 
-  last = vle_num_opcodes;
-  for (i = VLE_OPCD_SEGS; i > 0; --i)
-    {
-      if (vle_opcd_indices[i] == 0)
-	vle_opcd_indices[i] = last;
-      last = vle_opcd_indices[i];
+          vle_opcd_indices[seg] = i;
+        }
+
+      last = vle_num_opcodes;
+      for (i = VLE_OPCD_SEGS; i > 0; --i)
+        {
+          if (vle_opcd_indices[i] == 0)
+	    vle_opcd_indices[i] = last;
+          last = vle_opcd_indices[i];
+        }
     }
 
   if (info->arch == bfd_arch_powerpc)
@@ -448,7 +473,8 @@ skip_optional_operands (const unsigned char *opindex,
       operand = &powerpc_operands[*opindex];
       if ((operand->flags & PPC_OPERAND_NEXT) != 0
 	  || ((operand->flags & PPC_OPERAND_OPTIONAL) != 0
-	      && operand_value_powerpc (operand, insn, dialect) != 0))
+	      && operand_value_powerpc (operand, insn, dialect) !=
+		 ppc_optional_operand_value (operand)))
 	return 0;
     }
 
@@ -676,7 +702,7 @@ print_insn_powerpc (bfd_vma memaddr,
 	    (*info->print_address_func) (memaddr + value, info);
 	  else if ((operand->flags & PPC_OPERAND_ABSOLUTE) != 0)
 	    (*info->print_address_func) ((bfd_vma) value & 0xffffffff, info);
-	  else if ((operand->flags & PPC_OPERAND_FSL) != 0) 
+	  else if ((operand->flags & PPC_OPERAND_FSL) != 0)
 	    (*info->fprintf_func) (info->stream, "fsl%ld", value);
 	  else if ((operand->flags & PPC_OPERAND_FCR) != 0)
 	    (*info->fprintf_func) (info->stream, "fcr%ld", value);

@@ -1,6 +1,6 @@
 /* Cleanup routines for GDB, the GNU debugger.
 
-   Copyright (C) 1986-2015 Free Software Foundation, Inc.
+   Copyright (C) 1986-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -79,15 +79,14 @@ static struct cleanup *
 make_my_cleanup2 (struct cleanup **pmy_chain, make_cleanup_ftype *function,
 		  void *arg,  void (*free_arg) (void *))
 {
-  struct cleanup *new
-    = (struct cleanup *) xmalloc (sizeof (struct cleanup));
+  struct cleanup *newobj = XNEW (struct cleanup);
   struct cleanup *old_chain = *pmy_chain;
 
-  new->next = *pmy_chain;
-  new->function = function;
-  new->free_arg = free_arg;
-  new->arg = arg;
-  *pmy_chain = new;
+  newobj->next = *pmy_chain;
+  newobj->function = function;
+  newobj->free_arg = free_arg;
+  newobj->arg = arg;
+  *pmy_chain = newobj;
 
   gdb_assert (old_chain != NULL);
   return old_chain;

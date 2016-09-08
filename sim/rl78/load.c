@@ -1,6 +1,6 @@
 /* load.c --- loading object files into the RL78 simulator.
 
-   Copyright (C) 2005-2015 Free Software Foundation, Inc.
+   Copyright (C) 2005-2016 Free Software Foundation, Inc.
    Contributed by Red Hat, Inc.
 
    This file is part of the GNU simulators.
@@ -27,7 +27,8 @@
 
 #include "libiberty.h"
 #include "bfd.h"
-#include "libbfd.h"
+#include "elf-bfd.h"
+#include "elf/rl78.h"
 #include "cpu.h"
 #include "mem.h"
 #include "load.h"
@@ -89,7 +90,30 @@ rl78_load (bfd *prog, host_callback *callbacks, const char * const simname)
       fprintf (stderr, "%s: Failed to read program headers\n", simname);
       return;
     }
-  
+
+  switch (elf_elfheader (prog)->e_flags & E_FLAG_RL78_CPU_MASK)
+    {
+    case E_FLAG_RL78_G10:
+      rl78_g10_mode = 1;
+      g13_multiply = 0;
+      g14_multiply = 0;
+      mem_set_mirror (0, 0xf8000, 4096);
+      break;
+    case E_FLAG_RL78_G13:
+      rl78_g10_mode = 0;
+      g13_multiply = 1;
+      g14_multiply = 0;
+      break;
+    case E_FLAG_RL78_G14:
+      rl78_g10_mode = 0;
+      g13_multiply = 0;
+      g14_multiply = 1;
+      break;
+    default:
+      /* Keep whatever was manually specified.  */
+      break;
+    }
+
   for (i = 0; i < num_headers; i++)
     {
       Elf_Internal_Phdr * p = phdrs + i;
@@ -115,13 +139,13 @@ rl78_load (bfd *prog, host_callback *callbacks, const char * const simname)
       buf = xmalloc (size);
 
       offset = p->p_offset;
-      if (prog->iovec->bseek (prog, offset, SEEK_SET) != 0)
+      if (bfd_seek (prog, offset, SEEK_SET) != 0)
 	{
 	  fprintf (stderr, "%s, Failed to seek to offset %lx\n", simname, (long) offset);
 	  continue;
 	}
 
-      if (prog->iovec->bread (prog, buf, size) != size)
+      if (bfd_bread (buf, size, prog) != size)
 	{
 	  fprintf (stderr, "%s: Failed to read %lx bytes\n", simname, size);
 	  continue;

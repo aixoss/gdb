@@ -1,5 +1,5 @@
 /* Remote target system call support.
-   Copyright 1997-2015 Free Software Foundation, Inc.
+   Copyright 1997-2016 Free Software Foundation, Inc.
    Contributed by Cygnus Solutions.
 
    This file is part of GDB.
@@ -24,7 +24,7 @@
    supported.  */
 
 #ifdef HAVE_CONFIG_H
-#include "cconfig.h"
+#include "config.h"
 #endif
 #include "ansidecl.h"
 #include "libiberty.h"
@@ -240,7 +240,7 @@ cb_syscall (host_callback *cb, CB_SYSCALL *sc)
 #endif /* wip */
 
     case CB_SYS_exit :
-      /* Caller must catch and handle.  */
+      /* Caller must catch and handle; see sim_syscall as an example.  */
       break;
 
     case CB_SYS_open :

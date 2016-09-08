@@ -1,6 +1,6 @@
 /* Native-dependent code for modern i386 BSD's.
 
-   Copyright (C) 2000-2015 Free Software Foundation, Inc.
+   Copyright (C) 2000-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -29,6 +29,7 @@
 
 #include "i386-tdep.h"
 #include "i387-tdep.h"
+#include "x86bsd-nat.h"
 #include "i386bsd-nat.h"
 #include "inf-ptrace.h"
 
@@ -88,7 +89,7 @@ static int have_ptrace_xmmregs = -1;
 static void
 i386bsd_supply_gregset (struct regcache *regcache, const void *gregs)
 {
-  const char *regs = gregs;
+  const char *regs = (const char *) gregs;
   int regnum;
 
   for (regnum = 0; regnum < ARRAY_SIZE (i386bsd_r_reg_offset); regnum++)
@@ -108,7 +109,7 @@ static void
 i386bsd_collect_gregset (const struct regcache *regcache,
 			 void *gregs, int regnum)
 {
-  char *regs = gregs;
+  char *regs = (char *) gregs;
   int i;
 
   for (i = 0; i < ARRAY_SIZE (i386bsd_r_reg_offset); i++)
@@ -134,7 +135,7 @@ i386bsd_fetch_inferior_registers (struct target_ops *ops,
     {
       struct reg regs;
 
-      if (ptrace (PT_GETREGS, ptid_get_pid (inferior_ptid),
+      if (ptrace (PT_GETREGS, get_ptrace_pid (inferior_ptid),
 		  (PTRACE_TYPE_ARG3) &regs, 0) == -1)
 	perror_with_name (_("Couldn't get registers"));
 
@@ -148,9 +149,26 @@ i386bsd_fetch_inferior_registers (struct target_ops *ops,
       struct fpreg fpregs;
 #ifdef HAVE_PT_GETXMMREGS
       char xmmregs[512];
+#endif
 
+#ifdef PT_GETXSTATE_INFO
+      if (x86bsd_xsave_len != 0)
+	{
+	  void *xstateregs;
+
+	  xstateregs = alloca (x86bsd_xsave_len);
+	  if (ptrace (PT_GETXSTATE, get_ptrace_pid (inferior_ptid),
+		      (PTRACE_TYPE_ARG3) xstateregs, 0) == -1)
+	    perror_with_name (_("Couldn't get extended state status"));
+
+	  i387_supply_xsave (regcache, -1, xstateregs);
+	  return;
+	}
+#endif
+      
+#ifdef HAVE_PT_GETXMMREGS
       if (have_ptrace_xmmregs != 0
-	  && ptrace(PT_GETXMMREGS, ptid_get_pid (inferior_ptid),
+	  && ptrace(PT_GETXMMREGS, get_ptrace_pid (inferior_ptid),
 		    (PTRACE_TYPE_ARG3) xmmregs, 0) == 0)
 	{
 	  have_ptrace_xmmregs = 1;
@@ -158,18 +176,15 @@ i386bsd_fetch_inferior_registers (struct target_ops *ops,
 	}
       else
 	{
-          if (ptrace (PT_GETFPREGS, ptid_get_pid (inferior_ptid),
+	  have_ptrace_xmmregs = 0;
+#endif
+          if (ptrace (PT_GETFPREGS, get_ptrace_pid (inferior_ptid),
 		      (PTRACE_TYPE_ARG3) &fpregs, 0) == -1)
 	    perror_with_name (_("Couldn't get floating point status"));
 
 	  i387_supply_fsave (regcache, -1, &fpregs);
+#ifdef HAVE_PT_GETXMMREGS
 	}
-#else
-      if (ptrace (PT_GETFPREGS, ptid_get_pid (inferior_ptid),
-		  (PTRACE_TYPE_ARG3) &fpregs, 0) == -1)
-	perror_with_name (_("Couldn't get floating point status"));
-
-      i387_supply_fsave (regcache, -1, &fpregs);
 #endif
     }
 }
@@ -185,13 +200,13 @@ i386bsd_store_inferior_registers (struct target_ops *ops,
     {
       struct reg regs;
 
-      if (ptrace (PT_GETREGS, ptid_get_pid (inferior_ptid),
+      if (ptrace (PT_GETREGS, get_ptrace_pid (inferior_ptid),
                   (PTRACE_TYPE_ARG3) &regs, 0) == -1)
         perror_with_name (_("Couldn't get registers"));
 
       i386bsd_collect_gregset (regcache, &regs, regnum);
 
-      if (ptrace (PT_SETREGS, ptid_get_pid (inferior_ptid),
+      if (ptrace (PT_SETREGS, get_ptrace_pid (inferior_ptid),
 	          (PTRACE_TYPE_ARG3) &regs, 0) == -1)
         perror_with_name (_("Couldn't write registers"));
 
@@ -204,16 +219,37 @@ i386bsd_store_inferior_registers (struct target_ops *ops,
       struct fpreg fpregs;
 #ifdef HAVE_PT_GETXMMREGS
       char xmmregs[512];
+#endif
 
+#ifdef PT_GETXSTATE_INFO
+      if (x86bsd_xsave_len != 0)
+	{
+	  void *xstateregs;
+
+	  xstateregs = alloca (x86bsd_xsave_len);
+	  if (ptrace (PT_GETXSTATE, get_ptrace_pid (inferior_ptid),
+		      (PTRACE_TYPE_ARG3) xstateregs, 0) == -1)
+	    perror_with_name (_("Couldn't get extended state status"));
+
+	  i387_collect_xsave (regcache, -1, xstateregs, 0);
+
+	  if (ptrace (PT_SETXSTATE, get_ptrace_pid (inferior_ptid),
+		      (PTRACE_TYPE_ARG3) xstateregs, x86bsd_xsave_len) == -1)
+	    perror_with_name (_("Couldn't write extended state status"));
+	  return;
+	}
+#endif
+
+#ifdef HAVE_PT_GETXMMREGS
       if (have_ptrace_xmmregs != 0
-	  && ptrace(PT_GETXMMREGS, ptid_get_pid (inferior_ptid),
+	  && ptrace(PT_GETXMMREGS, get_ptrace_pid (inferior_ptid),
 		    (PTRACE_TYPE_ARG3) xmmregs, 0) == 0)
 	{
 	  have_ptrace_xmmregs = 1;
 
 	  i387_collect_fxsave (regcache, regnum, xmmregs);
 
-	  if (ptrace (PT_SETXMMREGS, ptid_get_pid (inferior_ptid),
+	  if (ptrace (PT_SETXMMREGS, get_ptrace_pid (inferior_ptid),
 		      (PTRACE_TYPE_ARG3) xmmregs, 0) == -1)
             perror_with_name (_("Couldn't write XMM registers"));
 	}
@@ -221,13 +257,13 @@ i386bsd_store_inferior_registers (struct target_ops *ops,
 	{
 	  have_ptrace_xmmregs = 0;
 #endif
-          if (ptrace (PT_GETFPREGS, ptid_get_pid (inferior_ptid),
+          if (ptrace (PT_GETFPREGS, get_ptrace_pid (inferior_ptid),
 		      (PTRACE_TYPE_ARG3) &fpregs, 0) == -1)
 	    perror_with_name (_("Couldn't get floating point status"));
 
           i387_collect_fsave (regcache, regnum, &fpregs);
 
-          if (ptrace (PT_SETFPREGS, ptid_get_pid (inferior_ptid),
+          if (ptrace (PT_SETFPREGS, get_ptrace_pid (inferior_ptid),
 		      (PTRACE_TYPE_ARG3) &fpregs, 0) == -1)
 	    perror_with_name (_("Couldn't write floating point status"));
 #ifdef HAVE_PT_GETXMMREGS
@@ -244,89 +280,11 @@ i386bsd_target (void)
 {
   struct target_ops *t;
 
-  t = inf_ptrace_target ();
+  t = x86bsd_target ();
   t->to_fetch_registers = i386bsd_fetch_inferior_registers;
   t->to_store_registers = i386bsd_store_inferior_registers;
   return t;
 }
-
-
-/* Support for debug registers.  */
-
-#ifdef HAVE_PT_GETDBREGS
-
-/* Not all versions of FreeBSD/i386 that support the debug registers
-   have this macro.  */
-#ifndef DBREG_DRX
-#define DBREG_DRX(d, x) ((&d->dr0)[x])
-#endif
-
-static unsigned long
-i386bsd_dr_get (ptid_t ptid, int regnum)
-{
-  struct dbreg dbregs;
-
-  if (ptrace (PT_GETDBREGS, ptid_get_pid (inferior_ptid),
-	      (PTRACE_TYPE_ARG3) &dbregs, 0) == -1)
-    perror_with_name (_("Couldn't read debug registers"));
-
-  return DBREG_DRX ((&dbregs), regnum);
-}
-
-static void
-i386bsd_dr_set (int regnum, unsigned int value)
-{
-  struct dbreg dbregs;
-
-  if (ptrace (PT_GETDBREGS, ptid_get_pid (inferior_ptid),
-              (PTRACE_TYPE_ARG3) &dbregs, 0) == -1)
-    perror_with_name (_("Couldn't get debug registers"));
-
-  /* For some mysterious reason, some of the reserved bits in the
-     debug control register get set.  Mask these off, otherwise the
-     ptrace call below will fail.  */
-  DBREG_DRX ((&dbregs), 7) &= ~(0x0000fc00);
-
-  DBREG_DRX ((&dbregs), regnum) = value;
-
-  if (ptrace (PT_SETDBREGS, ptid_get_pid (inferior_ptid),
-              (PTRACE_TYPE_ARG3) &dbregs, 0) == -1)
-    perror_with_name (_("Couldn't write debug registers"));
-}
-
-void
-i386bsd_dr_set_control (unsigned long control)
-{
-  i386bsd_dr_set (7, control);
-}
-
-void
-i386bsd_dr_set_addr (int regnum, CORE_ADDR addr)
-{
-  gdb_assert (regnum >= 0 && regnum <= 4);
-
-  i386bsd_dr_set (regnum, addr);
-}
-
-CORE_ADDR
-i386bsd_dr_get_addr (int regnum)
-{
-  return i386bsd_dr_get (inferior_ptid, regnum);
-}
-
-unsigned long
-i386bsd_dr_get_status (void)
-{
-  return i386bsd_dr_get (inferior_ptid, 6);
-}
-
-unsigned long
-i386bsd_dr_get_control (void)
-{
-  return i386bsd_dr_get (inferior_ptid, 7);
-}
-
-#endif /* PT_GETDBREGS */
 
 
 /* Provide a prototype to silence -Wmissing-prototypes.  */

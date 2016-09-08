@@ -1,6 +1,6 @@
 /* Python interface to program spaces.
 
-   Copyright (C) 2010-2015 Free Software Foundation, Inc.
+   Copyright (C) 2010-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -41,6 +41,10 @@ typedef struct
 
   /* The frame filter list of functions.  */
   PyObject *frame_filters;
+
+  /* The frame unwinder list.  */
+  PyObject *frame_unwinders;
+
   /* The type-printer list.  */
   PyObject *type_printers;
 
@@ -48,7 +52,7 @@ typedef struct
   PyObject *xmethods;
 } pspace_object;
 
-static PyTypeObject pspace_object_type
+extern PyTypeObject pspace_object_type
     CPYCHECKER_TYPE_OBJECT_FOR_TYPEDEF ("pspace_object");
 
 static const struct program_space_data *pspy_pspace_data_key;
@@ -67,9 +71,7 @@ pspy_get_filename (PyObject *self, void *closure)
       struct objfile *objfile = obj->pspace->symfile_object_file;
 
       if (objfile)
-	return PyString_Decode (objfile_name (objfile),
-				strlen (objfile_name (objfile)),
-				host_charset (), NULL);
+	return host_string_to_python_string (objfile_name (objfile));
     }
   Py_RETURN_NONE;
 }
@@ -82,6 +84,7 @@ pspy_dealloc (PyObject *self)
   Py_XDECREF (ps_self->dict);
   Py_XDECREF (ps_self->printers);
   Py_XDECREF (ps_self->frame_filters);
+  Py_XDECREF (ps_self->frame_unwinders);
   Py_XDECREF (ps_self->type_printers);
   Py_XDECREF (ps_self->xmethods);
   Py_TYPE (self)->tp_free (self);
@@ -94,7 +97,10 @@ static int
 pspy_initialize (pspace_object *self)
 {
   self->pspace = NULL;
-  self->dict = NULL;
+
+  self->dict = PyDict_New ();
+  if (self->dict == NULL)
+    return 0;
 
   self->printers = PyList_New (0);
   if (self->printers == NULL)
@@ -102,6 +108,10 @@ pspy_initialize (pspace_object *self)
 
   self->frame_filters = PyDict_New ();
   if (self->frame_filters == NULL)
+    return 0;
+
+  self->frame_unwinders = PyList_New (0);
+  if (self->frame_unwinders == NULL)
     return 0;
 
   self->type_printers = PyList_New (0);
@@ -211,6 +221,48 @@ pspy_set_frame_filters (PyObject *o, PyObject *frame, void *ignore)
   return 0;
 }
 
+/* Return the list of the frame unwinders for this program space.  */
+
+PyObject *
+pspy_get_frame_unwinders (PyObject *o, void *ignore)
+{
+  pspace_object *self = (pspace_object *) o;
+
+  Py_INCREF (self->frame_unwinders);
+  return self->frame_unwinders;
+}
+
+/* Set this program space's list of the unwinders to UNWINDERS.  */
+
+static int
+pspy_set_frame_unwinders (PyObject *o, PyObject *unwinders, void *ignore)
+{
+  PyObject *tmp;
+  pspace_object *self = (pspace_object *) o;
+
+  if (!unwinders)
+    {
+      PyErr_SetString (PyExc_TypeError,
+		       "cannot delete the frame unwinders list");
+      return -1;
+    }
+
+  if (!PyList_Check (unwinders))
+    {
+      PyErr_SetString (PyExc_TypeError,
+		       "the frame unwinders attribute must be a list");
+      return -1;
+    }
+
+  /* Take care in case the LHS and RHS are related somehow.  */
+  tmp = self->frame_unwinders;
+  Py_INCREF (unwinders);
+  self->frame_unwinders = unwinders;
+  Py_XDECREF (tmp);
+
+  return 0;
+}
+
 /* Get the 'type_printers' attribute.  */
 
 static PyObject *
@@ -272,7 +324,7 @@ static void
 py_free_pspace (struct program_space *pspace, void *datum)
 {
   struct cleanup *cleanup;
-  pspace_object *object = datum;
+  pspace_object *object = (pspace_object *) datum;
   /* This is a fiction, but we're in a nasty spot: The pspace is in the
      process of being deleted, we can't rely on anything in it.  Plus
      this is one time when the current program space and current inferior
@@ -300,7 +352,7 @@ pspace_to_pspace_object (struct program_space *pspace)
 {
   pspace_object *object;
 
-  object = program_space_data (pspace, pspy_pspace_data_key);
+  object = (pspace_object *) program_space_data (pspace, pspy_pspace_data_key);
   if (!object)
     {
       object = PyObject_New (pspace_object, &pspace_object_type);
@@ -345,6 +397,8 @@ static PyGetSetDef pspace_getset[] =
     "Pretty printers.", NULL },
   { "frame_filters", pspy_get_frame_filters, pspy_set_frame_filters,
     "Frame filters.", NULL },
+  { "frame_unwinders", pspy_get_frame_unwinders, pspy_set_frame_unwinders,
+    "Frame unwinders.", NULL },
   { "type_printers", pspy_get_type_printers, pspy_set_type_printers,
     "Type printers.", NULL },
   { "xmethods", pspy_get_xmethods, NULL,
@@ -352,7 +406,7 @@ static PyGetSetDef pspace_getset[] =
   { NULL }
 };
 
-static PyTypeObject pspace_object_type =
+PyTypeObject pspace_object_type =
 {
   PyVarObject_HEAD_INIT (NULL, 0)
   "gdb.Progspace",		  /*tp_name*/

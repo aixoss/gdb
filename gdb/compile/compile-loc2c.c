@@ -1,6 +1,6 @@
 /* Convert a DWARF location expression to C
 
-   Copyright (C) 2014-2015 Free Software Foundation, Inc.
+   Copyright (C) 2014-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -85,7 +85,7 @@ compute_stack_depth_worker (int start, int *need_tempvar,
 
   while (op_ptr < op_end)
     {
-      enum dwarf_location_atom op = *op_ptr;
+      enum dwarf_location_atom op = (enum dwarf_location_atom) *op_ptr;
       uint64_t reg;
       int64_t offset;
       int ndx = op_ptr - base;
@@ -436,12 +436,16 @@ compute_stack_depth (enum bfd_endian byte_order, unsigned int addr_size,
 static void
 push (int indent, struct ui_file *stream, ULONGEST l)
 {
-  fprintfi_filtered (indent, stream, "__gdb_stack[++__gdb_tos] = %s;\n",
+  fprintfi_filtered (indent, stream,
+		     "__gdb_stack[++__gdb_tos] = (" GCC_UINTPTR ") %s;\n",
 		     hex_string (l));
 }
 
 /* Emit code to push an arbitrary expression.  This works like
    printf.  */
+
+static void pushf (int indent, struct ui_file *stream, const char *format, ...)
+  ATTRIBUTE_PRINTF (3, 4);
 
 static void
 pushf (int indent, struct ui_file *stream, const char *format, ...)
@@ -460,6 +464,9 @@ pushf (int indent, struct ui_file *stream, const char *format, ...)
 /* Emit code for a unary expression -- one which operates in-place on
    the top-of-stack.  This works like printf.  */
 
+static void unary (int indent, struct ui_file *stream, const char *format, ...)
+  ATTRIBUTE_PRINTF (3, 4);
+
 static void
 unary (int indent, struct ui_file *stream, const char *format, ...)
 {
@@ -474,6 +481,8 @@ unary (int indent, struct ui_file *stream, const char *format, ...)
 
 /* Emit code for a unary expression -- one which uses the top two
    stack items, popping the topmost one.  This works like printf.  */
+static void binary (int indent, struct ui_file *stream, const char *format, ...)
+  ATTRIBUTE_PRINTF (3, 4);
 
 static void
 binary (int indent, struct ui_file *stream, const char *format, ...)
@@ -512,7 +521,8 @@ pushf_register_address (int indent, struct ui_file *stream,
   struct cleanup *cleanups = make_cleanup (xfree, regname);
 
   registers_used[regnum] = 1;
-  pushf (indent, stream, "&" COMPILE_I_SIMPLE_REGISTER_ARG_NAME	 "->%s",
+  pushf (indent, stream,
+	 "(" GCC_UINTPTR ") &" COMPILE_I_SIMPLE_REGISTER_ARG_NAME "->%s",
 	 regname);
 
   do_cleanups (cleanups);
@@ -536,7 +546,8 @@ pushf_register (int indent, struct ui_file *stream,
     pushf (indent, stream, COMPILE_I_SIMPLE_REGISTER_ARG_NAME "->%s",
 	   regname);
   else
-    pushf (indent, stream, COMPILE_I_SIMPLE_REGISTER_ARG_NAME "->%s + %s",
+    pushf (indent, stream,
+	   COMPILE_I_SIMPLE_REGISTER_ARG_NAME "->%s + (" GCC_UINTPTR ") %s",
 	   regname, hex_string (offset));
 
   do_cleanups (cleanups);
@@ -597,7 +608,8 @@ do_compile_dwarf_expr_to_c (int indent, struct ui_file *stream,
 
   ++scope;
 
-  fprintfi_filtered (indent, stream, "%s%s;\n", type_name, result_name);
+  fprintfi_filtered (indent, stream, "__attribute__ ((unused)) %s %s;\n",
+		     type_name, result_name);
   fprintfi_filtered (indent, stream, "{\n");
   indent += 2;
 
@@ -624,7 +636,7 @@ do_compile_dwarf_expr_to_c (int indent, struct ui_file *stream,
 		 "there is no selected frame"),
 	       SYMBOL_PRINT_NAME (sym));
 
-      val = read_var_value (sym, frame);
+      val = read_var_value (sym, NULL, frame);
       if (VALUE_LVAL (val) != lval_memory)
 	error (_("Symbol \"%s\" cannot be used for compilation evaluation "
 		 "as its address has not been found."),
@@ -651,11 +663,11 @@ do_compile_dwarf_expr_to_c (int indent, struct ui_file *stream,
   fprintfi_filtered (indent, stream, "int __gdb_tos = -1;\n");
 
   if (initial != NULL)
-    pushf (indent, stream, core_addr_to_string (*initial));
+    pushf (indent, stream, "%s", core_addr_to_string (*initial));
 
   while (op_ptr < op_end)
     {
-      enum dwarf_location_atom op = *op_ptr;
+      enum dwarf_location_atom op = (enum dwarf_location_atom) *op_ptr;
       uint64_t uoffset, reg;
       int64_t offset;
 
@@ -805,15 +817,15 @@ do_compile_dwarf_expr_to_c (int indent, struct ui_file *stream,
 	case DW_OP_reg31:
 	  dwarf_expr_require_composition (op_ptr, op_end, "DW_OP_regx");
 	  pushf_register_address (indent, stream, registers_used, arch,
-				  dwarf2_reg_to_regnum_or_error (arch,
-							      op - DW_OP_reg0));
+				  dwarf_reg_to_regnum_or_error
+				    (arch, op - DW_OP_reg0));
 	  break;
 
 	case DW_OP_regx:
 	  op_ptr = safe_read_uleb128 (op_ptr, op_end, &reg);
 	  dwarf_expr_require_composition (op_ptr, op_end, "DW_OP_regx");
 	  pushf_register_address (indent, stream, registers_used, arch,
-				  dwarf2_reg_to_regnum_or_error (arch, reg));
+				  dwarf_reg_to_regnum_or_error (arch, reg));
 	  break;
 
 	case DW_OP_breg0:
@@ -850,8 +862,8 @@ do_compile_dwarf_expr_to_c (int indent, struct ui_file *stream,
 	case DW_OP_breg31:
 	  op_ptr = safe_read_sleb128 (op_ptr, op_end, &offset);
 	  pushf_register (indent, stream, registers_used, arch,
-			  dwarf2_reg_to_regnum_or_error (arch,
-							 op - DW_OP_breg0),
+			  dwarf_reg_to_regnum_or_error (arch,
+							op - DW_OP_breg0),
 			  offset);
 	  break;
 	case DW_OP_bregx:
@@ -859,7 +871,7 @@ do_compile_dwarf_expr_to_c (int indent, struct ui_file *stream,
 	    op_ptr = safe_read_uleb128 (op_ptr, op_end, &reg);
 	    op_ptr = safe_read_sleb128 (op_ptr, op_end, &offset);
 	    pushf_register (indent, stream, registers_used, arch,
-			    dwarf2_reg_to_regnum_or_error (arch, reg), offset);
+			    dwarf_reg_to_regnum_or_error (arch, reg), offset);
 	  }
 	  break;
 	case DW_OP_fbreg:
@@ -891,7 +903,7 @@ do_compile_dwarf_expr_to_c (int indent, struct ui_file *stream,
 		       (long) (op_ptr - base));
 
 	    do_compile_dwarf_expr_to_c (indent, stream,
-					"void *", fb_name,
+					GCC_UINTPTR, fb_name,
 					sym, pc,
 					arch, registers_used, addr_size,
 					datastart, datastart + datalen,
@@ -911,7 +923,8 @@ do_compile_dwarf_expr_to_c (int indent, struct ui_file *stream,
 
 	case DW_OP_pick:
 	  offset = *op_ptr++;
-	  pushf (indent, stream, "__gdb_stack[__gdb_tos - %d]", offset);
+	  pushf (indent, stream, "__gdb_stack[__gdb_tos - %s]",
+		 plongest (offset));
 	  break;
 
 	case DW_OP_swap:
@@ -1000,8 +1013,8 @@ do_compile_dwarf_expr_to_c (int indent, struct ui_file *stream,
 	  break;
 
 #define BINARY(OP)							\
-	  binary (indent, stream, ("__gdb_stack[__gdb_tos-1] " #OP	\
-				   " __gdb_stack[__gdb_tos]"));	\
+	  binary (indent, stream, "%s", "__gdb_stack[__gdb_tos-1] " #OP \
+				   " __gdb_stack[__gdb_tos]");	\
 	  break
 
 	case DW_OP_and:
@@ -1071,12 +1084,12 @@ do_compile_dwarf_expr_to_c (int indent, struct ui_file *stream,
 			   "__cfa_%ld", (long) (op_ptr - base));
 
 		do_compile_dwarf_expr_to_c (indent, stream,
-					    "void *", cfa_name,
+					    GCC_UINTPTR, cfa_name,
 					    sym, pc, arch, registers_used,
 					    addr_size,
 					    cfa_start, cfa_end,
 					    &text_offset, per_cu);
-		pushf (indent, stream, cfa_name);
+		pushf (indent, stream, "%s", cfa_name);
 	      }
 	  }
 
@@ -1108,8 +1121,8 @@ do_compile_dwarf_expr_to_c (int indent, struct ui_file *stream,
 	}
     }
 
-  fprintfi_filtered (indent, stream, "%s = (%s) __gdb_stack[__gdb_tos];\n",
-		     result_name, type_name);
+  fprintfi_filtered (indent, stream, "%s = __gdb_stack[__gdb_tos];\n",
+		     result_name);
   fprintfi_filtered (indent - 2, stream, "}\n");
 
   do_cleanups (cleanup);
@@ -1125,7 +1138,7 @@ compile_dwarf_expr_to_c (struct ui_file *stream, const char *result_name,
 			 const gdb_byte *op_ptr, const gdb_byte *op_end,
 			 struct dwarf2_per_cu_data *per_cu)
 {
-  do_compile_dwarf_expr_to_c (2, stream, "void *", result_name, sym, pc,
+  do_compile_dwarf_expr_to_c (2, stream, GCC_UINTPTR, result_name, sym, pc,
 			      arch, registers_used, addr_size, op_ptr, op_end,
 			      NULL, per_cu);
 }

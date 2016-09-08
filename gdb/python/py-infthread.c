@@ -1,6 +1,6 @@
 /* Python interface to inferior threads.
 
-   Copyright (C) 2009-2015 Free Software Foundation, Inc.
+   Copyright (C) 2009-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -22,7 +22,7 @@
 #include "inferior.h"
 #include "python-internal.h"
 
-static PyTypeObject thread_object_type
+extern PyTypeObject thread_object_type
     CPYCHECKER_TYPE_OBJECT_FOR_TYPEDEF ("thread_object");
 
 /* Require that INFERIOR be a valid inferior ID.  */
@@ -62,7 +62,7 @@ static PyObject *
 thpy_get_name (PyObject *self, void *ignore)
 {
   thread_object *thread_obj = (thread_object *) self;
-  char *name;
+  const char *name;
 
   THPY_REQUIRE_VALID (thread_obj);
 
@@ -115,6 +115,8 @@ thpy_set_name (PyObject *self, PyObject *newvalue, void *ignore)
   return 0;
 }
 
+/* Getter for InferiorThread.num.  */
+
 static PyObject *
 thpy_get_num (PyObject *self, void *closure)
 {
@@ -122,7 +124,19 @@ thpy_get_num (PyObject *self, void *closure)
 
   THPY_REQUIRE_VALID (thread_obj);
 
-  return PyLong_FromLong (thread_obj->thread->num);
+  return PyLong_FromLong (thread_obj->thread->per_inf_num);
+}
+
+/* Getter for InferiorThread.global_num.  */
+
+static PyObject *
+thpy_get_global_num (PyObject *self, void *closure)
+{
+  thread_object *thread_obj = (thread_object *) self;
+
+  THPY_REQUIRE_VALID (thread_obj);
+
+  return PyLong_FromLong (thread_obj->thread->global_num);
 }
 
 /* Getter for InferiorThread.ptid  -> (pid, lwp, tid).
@@ -131,13 +145,23 @@ thpy_get_num (PyObject *self, void *closure)
 static PyObject *
 thpy_get_ptid (PyObject *self, void *closure)
 {
-  int pid;
-  long tid, lwp;
   thread_object *thread_obj = (thread_object *) self;
 
   THPY_REQUIRE_VALID (thread_obj);
 
   return gdbpy_create_ptid_object (thread_obj->thread->ptid);
+}
+
+/* Getter for InferiorThread.inferior -> Inferior.  */
+
+static PyObject *
+thpy_get_inferior (PyObject *self, void *ignore)
+{
+  thread_object *thread_obj = (thread_object *) self;
+
+  THPY_REQUIRE_VALID (thread_obj);
+
+  return thread_obj->inf_obj;
 }
 
 /* Implementation of InferiorThread.switch ().
@@ -147,15 +171,18 @@ static PyObject *
 thpy_switch (PyObject *self, PyObject *args)
 {
   thread_object *thread_obj = (thread_object *) self;
-  volatile struct gdb_exception except;
 
   THPY_REQUIRE_VALID (thread_obj);
 
-  TRY_CATCH (except, RETURN_MASK_ALL)
+  TRY
     {
       switch_to_thread (thread_obj->thread->ptid);
     }
-  GDB_PY_HANDLE_EXCEPTION (except);
+  CATCH (except, RETURN_MASK_ALL)
+    {
+      GDB_PY_HANDLE_EXCEPTION (except);
+    }
+  END_CATCH
 
   Py_RETURN_NONE;
 }
@@ -279,9 +306,14 @@ static PyGetSetDef thread_object_getset[] =
 {
   { "name", thpy_get_name, thpy_set_name,
     "The name of the thread, as set by the user or the OS.", NULL },
-  { "num", thpy_get_num, NULL, "ID of the thread, as assigned by GDB.", NULL },
+  { "num", thpy_get_num, NULL,
+    "Per-inferior number of the thread, as assigned by GDB.", NULL },
+  { "global_num", thpy_get_global_num, NULL,
+    "Global number of the thread, as assigned by GDB.", NULL },
   { "ptid", thpy_get_ptid, NULL, "ID of the thread, as assigned by the OS.",
     NULL },
+  { "inferior", thpy_get_inferior, NULL,
+    "The Inferior object this thread belongs to.", NULL },
 
   { NULL }
 };
@@ -307,7 +339,7 @@ Return whether the thread is exited." },
   { NULL }
 };
 
-static PyTypeObject thread_object_type =
+PyTypeObject thread_object_type =
 {
   PyVarObject_HEAD_INIT (NULL, 0)
   "gdb.InferiorThread",		  /*tp_name*/

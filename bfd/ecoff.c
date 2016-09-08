@@ -1,5 +1,5 @@
 /* Generic ECOFF (Extended-COFF) routines.
-   Copyright (C) 1990-2015 Free Software Foundation, Inc.
+   Copyright (C) 1990-2016 Free Software Foundation, Inc.
    Original version by Per Bothner.
    Full support added by Ian Lance Taylor, ian@cygnus.com.
 
@@ -504,7 +504,6 @@ _bfd_ecoff_slurp_symbolic_info (bfd *abfd,
   struct fdr *fdr_ptr;
   bfd_size_type raw_end;
   bfd_size_type cb_end;
-  bfd_size_type amt;
   file_ptr pos;
 
   BFD_ASSERT (debug == &ecoff_data (abfd)->debug_info);
@@ -607,9 +606,8 @@ _bfd_ecoff_slurp_symbolic_info (bfd *abfd,
 
      We need to look at the fdr to deal with a lot of information in
      the symbols, so we swap them here.  */
-  amt = internal_symhdr->ifdMax;
-  amt *= sizeof (struct fdr);
-  debug->fdr = (FDR *) bfd_alloc (abfd, amt);
+  debug->fdr = (FDR *) bfd_alloc2 (abfd, internal_symhdr->ifdMax,
+				   sizeof (struct fdr));
   if (debug->fdr == NULL)
     return FALSE;
   external_fdr_size = backend->debug_swap.external_fdr_size;
@@ -859,7 +857,6 @@ _bfd_ecoff_slurp_symbol_table (bfd *abfd)
     = backend->debug_swap.swap_ext_in;
   void (* const swap_sym_in) (bfd *, void *, SYMR *)
     = backend->debug_swap.swap_sym_in;
-  bfd_size_type internal_size;
   ecoff_symbol_type *internal;
   ecoff_symbol_type *internal_ptr;
   char *eraw_src;
@@ -878,9 +875,8 @@ _bfd_ecoff_slurp_symbol_table (bfd *abfd)
   if (bfd_get_symcount (abfd) == 0)
     return TRUE;
 
-  internal_size = bfd_get_symcount (abfd);
-  internal_size *= sizeof (ecoff_symbol_type);
-  internal = (ecoff_symbol_type *) bfd_alloc (abfd, internal_size);
+  internal = (ecoff_symbol_type *) bfd_alloc2 (abfd, bfd_get_symcount (abfd),
+					       sizeof (ecoff_symbol_type));
   if (internal == NULL)
     return FALSE;
 
@@ -896,20 +892,28 @@ _bfd_ecoff_slurp_symbol_table (bfd *abfd)
       (*swap_ext_in) (abfd, (void *) eraw_src, &internal_esym);
 
       /* PR 17512: file: 3372-1000-0.004.  */
-      if (internal_esym.asym.iss >= ecoff_data (abfd)->debug_info.symbolic_header.issExtMax)
+      if (internal_esym.asym.iss >= ecoff_data (abfd)->debug_info.symbolic_header.issExtMax
+	  || internal_esym.asym.iss < 0)
 	return FALSE;
 
       internal_ptr->symbol.name = (ecoff_data (abfd)->debug_info.ssext
 				   + internal_esym.asym.iss);
+
       if (!ecoff_set_symbol_info (abfd, &internal_esym.asym,
 				  &internal_ptr->symbol, 1,
 				  internal_esym.weakext))
 	return FALSE;
-      
+
       /* The alpha uses a negative ifd field for section symbols.  */
       if (internal_esym.ifd >= 0)
-	internal_ptr->fdr = (ecoff_data (abfd)->debug_info.fdr
-			     + internal_esym.ifd);
+	{
+	  /* PR 17512: file: 3372-1983-0.004.  */
+	  if (internal_esym.ifd >= ecoff_data (abfd)->debug_info.symbolic_header.ifdMax)
+	    internal_ptr->fdr = NULL;
+	  else
+	    internal_ptr->fdr = (ecoff_data (abfd)->debug_info.fdr
+				 + internal_esym.ifd);
+	}
       else
 	internal_ptr->fdr = NULL;
       internal_ptr->local = FALSE;
@@ -3540,9 +3544,9 @@ ecoff_link_check_archive_element (bfd *abfd,
   if (h->type != bfd_link_hash_undefined)
     return TRUE;
 
-  /* Include this element.  */
+  /* Include this element?  */
   if (!(*info->callbacks->add_archive_element) (info, abfd, name, &abfd))
-    return FALSE;
+    return TRUE;
   *pneeded = TRUE;
 
   return ecoff_link_add_object_symbols (abfd, info);
@@ -3892,7 +3896,7 @@ ecoff_indirect_link_order (bfd *output_bfd,
      modified, and we write them out now.  We use the reloc_count
      field of output_section to keep track of the number of relocs we
      have output so far.  */
-  if (info->relocatable)
+  if (bfd_link_relocatable (info))
     {
       file_ptr pos = (output_section->rel_filepos
 		      + output_section->reloc_count * external_reloc_size);
@@ -3999,7 +4003,7 @@ ecoff_reloc_link_order (bfd *output_bfd,
 
       size = bfd_get_reloc_size (rel.howto);
       buf = (bfd_byte *) bfd_zmalloc (size);
-      if (buf == NULL)
+      if (buf == NULL && size != 0)
 	return FALSE;
       rstat = _bfd_relocate_contents (rel.howto, output_bfd,
 				      (bfd_vma) addend, buf);
@@ -4011,17 +4015,12 @@ ecoff_reloc_link_order (bfd *output_bfd,
 	case bfd_reloc_outofrange:
 	  abort ();
 	case bfd_reloc_overflow:
-	  if (! ((*info->callbacks->reloc_overflow)
-		 (info, NULL,
-		  (link_order->type == bfd_section_reloc_link_order
-		   ? bfd_section_name (output_bfd, section)
-		   : link_order->u.reloc.p->u.name),
-		  rel.howto->name, addend, NULL,
-		  NULL, (bfd_vma) 0)))
-	    {
-	      free (buf);
-	      return FALSE;
-	    }
+	  (*info->callbacks->reloc_overflow)
+	    (info, NULL,
+	     (link_order->type == bfd_section_reloc_link_order
+	      ? bfd_section_name (output_bfd, section)
+	      : link_order->u.reloc.p->u.name),
+	     rel.howto->name, addend, NULL, NULL, (bfd_vma) 0);
 	  break;
 	}
       ok = bfd_set_section_contents (output_bfd, output_section, (void *) buf,
@@ -4051,10 +4050,8 @@ ecoff_reloc_link_order (bfd *output_bfd,
 	in.r_symndx = h->indx;
       else
 	{
-	  if (! ((*info->callbacks->unattached_reloc)
-		 (info, link_order->u.reloc.p->u.name, NULL,
-		  NULL, (bfd_vma) 0)))
-	    return FALSE;
+	  (*info->callbacks->unattached_reloc)
+	    (info, link_order->u.reloc.p->u.name, NULL, NULL, (bfd_vma) 0);
 	  in.r_symndx = 0;
 	}
       in.r_extern = 1;
@@ -4366,7 +4363,7 @@ _bfd_ecoff_bfd_final_link (bfd *abfd, struct bfd_link_info *info)
   einfo.info = info;
   bfd_hash_traverse (&info->hash->table, ecoff_link_write_external, &einfo);
 
-  if (info->relocatable)
+  if (bfd_link_relocatable (info))
     {
       /* We need to make a pass over the link_orders to count up the
 	 number of relocations we will need to output, so that we know
@@ -4396,7 +4393,7 @@ _bfd_ecoff_bfd_final_link (bfd *abfd, struct bfd_link_info *info)
 
   bfd_ecoff_debug_free (handle, abfd, debug, &backend->debug_swap, info);
 
-  if (info->relocatable)
+  if (bfd_link_relocatable (info))
     {
       /* Now reset the reloc_count field of the sections in the output
 	 BFD to 0, so that we can use them to keep track of how many
@@ -4416,7 +4413,7 @@ _bfd_ecoff_bfd_final_link (bfd *abfd, struct bfd_link_info *info)
 	ecoff_data (abfd)->gp = (h->u.def.value
 				 + h->u.def.section->output_section->vma
 				 + h->u.def.section->output_offset);
-      else if (info->relocatable)
+      else if (bfd_link_relocatable (info))
 	{
 	  bfd_vma lo;
 

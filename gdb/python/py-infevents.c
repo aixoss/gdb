@@ -1,6 +1,6 @@
 /* Python interface to inferior function events.
 
-   Copyright (C) 2013-2015 Free Software Foundation, Inc.
+   Copyright (C) 2013-2016 Free Software Foundation, Inc.
 
    This file is part of GDB.
 
@@ -20,13 +20,13 @@
 #include "defs.h"
 #include "py-event.h"
 
-static PyTypeObject inferior_call_pre_event_object_type
+extern PyTypeObject inferior_call_pre_event_object_type
     CPYCHECKER_TYPE_OBJECT_FOR_TYPEDEF ("event_object");
-static PyTypeObject inferior_call_post_event_object_type
+extern PyTypeObject inferior_call_post_event_object_type
     CPYCHECKER_TYPE_OBJECT_FOR_TYPEDEF ("event_object");
-static PyTypeObject register_changed_event_object_type
+extern PyTypeObject register_changed_event_object_type
     CPYCHECKER_TYPE_OBJECT_FOR_TYPEDEF ("event_object");
-static PyTypeObject memory_changed_event_object_type
+extern PyTypeObject memory_changed_event_object_type
     CPYCHECKER_TYPE_OBJECT_FOR_TYPEDEF ("event_object");
 
 /* Construct either a gdb.InferiorCallPreEvent or a
@@ -36,8 +36,6 @@ static PyObject *
 create_inferior_call_event_object (inferior_call_kind flag, ptid_t ptid,
 				   CORE_ADDR addr)
 {
-  int pid;
-  long tid, lwp;
   PyObject *event;
   PyObject *ptid_obj = NULL;
   PyObject *addr_obj = NULL;
@@ -238,26 +236,22 @@ GDBPY_NEW_EVENT_TYPE (inferior_call_pre,
 		      "gdb.InferiorCallPreEvent",
 		      "InferiorCallPreEvent",
 		      "GDB inferior function pre-call event object",
-		      event_object_type,
-		      static);
+		      event_object_type);
 
 GDBPY_NEW_EVENT_TYPE (inferior_call_post,
 		      "gdb.InferiorCallPostEvent",
 		      "InferiorCallPostEvent",
 		      "GDB inferior function post-call event object",
-		      event_object_type,
-		      static);
+		      event_object_type);
 
 GDBPY_NEW_EVENT_TYPE (register_changed,
 		      "gdb.RegisterChangedEvent",
 		      "RegisterChangedEvent",
 		      "GDB register change event object",
-		      event_object_type,
-		      static);
+		      event_object_type);
 
 GDBPY_NEW_EVENT_TYPE (memory_changed,
 		      "gdb.MemoryChangedEvent",
 		      "MemoryChangedEvent",
 		      "GDB memory change event object",
-		      event_object_type,
-		      static);
+		      event_object_type);

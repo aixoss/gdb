@@ -1,6 +1,6 @@
 /* SPU specific support for 32-bit ELF
 
-   Copyright (C) 2006-2015 Free Software Foundation, Inc.
+   Copyright (C) 2006-2016 Free Software Foundation, Inc.
 
    This file is part of BFD, the Binary File Descriptor library.
 
@@ -37,7 +37,7 @@ static bfd_reloc_status_type spu_elf_rel9 (bfd *, arelent *, asymbol *,
    array, so it must be declared in the order of that type.  */
 
 static reloc_howto_type elf_howto_table[] = {
-  HOWTO (R_SPU_NONE,       0, 0,  0, FALSE,  0, complain_overflow_dont,
+  HOWTO (R_SPU_NONE,       0, 3,  0, FALSE,  0, complain_overflow_dont,
 	 bfd_elf_generic_reloc, "SPU_NONE",
 	 FALSE, 0, 0x00000000, FALSE),
   HOWTO (R_SPU_ADDR10,     4, 2, 10, FALSE, 14, complain_overflow_bitfield,
@@ -105,6 +105,8 @@ spu_elf_bfd_to_reloc_type (bfd_reloc_code_real_type code)
   switch (code)
     {
     default:
+      return (enum elf_spu_reloc_type) -1;
+    case BFD_RELOC_NONE:
       return R_SPU_NONE;
     case BFD_RELOC_SPU_IMM10W:
       return R_SPU_ADDR10;
@@ -151,7 +153,14 @@ spu_elf_info_to_howto (bfd *abfd ATTRIBUTE_UNUSED,
   enum elf_spu_reloc_type r_type;
 
   r_type = (enum elf_spu_reloc_type) ELF32_R_TYPE (dst->r_info);
-  BFD_ASSERT (r_type < R_SPU_max);
+  /* PR 17512: file: 90c2a92e.  */
+  if (r_type >= R_SPU_max)
+    {
+      (*_bfd_error_handler) (_("%B: unrecognised SPU reloc number: %d"),
+			     abfd, r_type);
+      bfd_set_error (bfd_error_bad_value);
+      r_type = R_SPU_NONE;
+    }
   cache_ptr->howto = &elf_howto_table[(int) r_type];
 }
 
@@ -161,7 +170,7 @@ spu_elf_reloc_type_lookup (bfd *abfd ATTRIBUTE_UNUSED,
 {
   enum elf_spu_reloc_type r_type = spu_elf_bfd_to_reloc_type (code);
 
-  if (r_type == R_SPU_NONE)
+  if (r_type == (enum elf_spu_reloc_type) -1)
     return NULL;
 
   return elf_howto_table + r_type;
@@ -4720,7 +4729,7 @@ spu_elf_final_link (bfd *output_bfd, struct bfd_link_info *info)
   return bfd_elf_final_link (output_bfd, info);
 }
 
-/* Called when not normally emitting relocs, ie. !info->relocatable
+/* Called when not normally emitting relocs, ie. !bfd_link_relocatable (info)
    and !info->emitrelocations.  Returns a count of special relocs
    that need to be emitted.  */
 
@@ -4893,18 +4902,17 @@ spu_elf_relocate_section (bfd *output_bfd,
 	  else if (info->unresolved_syms_in_objects == RM_IGNORE
 		   && ELF_ST_VISIBILITY (h->other) == STV_DEFAULT)
 	    ;
-	  else if (!info->relocatable
+	  else if (!bfd_link_relocatable (info)
 		   && !(r_type == R_SPU_PPU32 || r_type == R_SPU_PPU64))
 	    {
 	      bfd_boolean err;
 	      err = (info->unresolved_syms_in_objects == RM_GENERATE_ERROR
 		     || ELF_ST_VISIBILITY (h->other) != STV_DEFAULT);
-	      if (!info->callbacks->undefined_symbol (info,
-						      h->root.root.string,
-						      input_bfd,
-						      input_section,
-						      rel->r_offset, err))
-		return FALSE;
+	      (*info->callbacks->undefined_symbol) (info,
+						    h->root.root.string,
+						    input_bfd,
+						    input_section,
+						    rel->r_offset, err);
 	    }
 	  sym_name = h->root.root.string;
 	}
@@ -4913,7 +4921,7 @@ spu_elf_relocate_section (bfd *output_bfd,
 	RELOC_AGAINST_DISCARDED_SECTION (info, input_bfd, input_section,
 					 rel, 1, relend, howto, 0, contents);
 
-      if (info->relocatable)
+      if (bfd_link_relocatable (info))
 	continue;
 
       /* Change "a rt,ra,rb" to "ai rt,ra,0". */
@@ -4981,7 +4989,7 @@ spu_elf_relocate_section (bfd *output_bfd,
 	    }
 	}
 
-      if (htab->params->emit_fixups && !info->relocatable
+      if (htab->params->emit_fixups && !bfd_link_relocatable (info)
 	  && (input_section->flags & SEC_ALLOC) != 0
 	  && r_type == R_SPU_ADDR32)
 	{
@@ -5041,17 +5049,14 @@ spu_elf_relocate_section (bfd *output_bfd,
 	  switch (r)
 	    {
 	    case bfd_reloc_overflow:
-	      if (!((*info->callbacks->reloc_overflow)
-		    (info, (h ? &h->root : NULL), sym_name, howto->name,
-		     (bfd_vma) 0, input_bfd, input_section, rel->r_offset)))
-		return FALSE;
+	      (*info->callbacks->reloc_overflow)
+		(info, (h ? &h->root : NULL), sym_name, howto->name,
+		 (bfd_vma) 0, input_bfd, input_section, rel->r_offset);
 	      break;
 
 	    case bfd_reloc_undefined:
-	      if (!((*info->callbacks->undefined_symbol)
-		    (info, sym_name, input_bfd, input_section,
-		     rel->r_offset, TRUE)))
-		return FALSE;
+	      (*info->callbacks->undefined_symbol)
+		(info, sym_name, input_bfd, input_section, rel->r_offset, TRUE);
 	      break;
 
 	    case bfd_reloc_outofrange:
@@ -5072,10 +5077,8 @@ spu_elf_relocate_section (bfd *output_bfd,
 
 	    common_error:
 	      ret = FALSE;
-	      if (!((*info->callbacks->warning)
-		    (info, msg, sym_name, input_bfd, input_section,
-		     rel->r_offset)))
-		return FALSE;
+	      (*info->callbacks->warning) (info, msg, sym_name, input_bfd,
+					   input_section, rel->r_offset);
 	      break;
 	    }
 	}
@@ -5126,7 +5129,7 @@ spu_elf_output_symbol_hook (struct bfd_link_info *info,
 {
   struct spu_link_hash_table *htab = spu_hash_table (info);
 
-  if (!info->relocatable
+  if (!bfd_link_relocatable (info)
       && htab->stub_sec != NULL
       && h != NULL
       && (h->root.type == bfd_link_hash_defined
